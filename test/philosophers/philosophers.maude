@@ -1,0 +1,43 @@
+***
+*** Dining philosophers problem
+*** (https://github.com/fadoss/strat-examples/blob/master/modelChecking/philosophers.maude)
+***
+
+mod PHILOSOPHERS-DINNER is
+	protecting NAT .
+
+	sort Obj Phil Being List Table .
+	subsort Obj Phil < Being < List .
+
+	op (_|_|_) : Obj Nat Obj -> Phil [ctor] .
+	ops o ψ : -> Obj [ctor] .
+	op empty : -> List [ctor] .
+	op __ : List List -> List [ctor assoc id: empty] .
+	op <_> : List -> Table [ctor] .
+
+	var  Id  : Nat .
+	var  P   : Phil .
+	vars X Y : Obj .
+	vars L M : List .
+
+	rl [left] : ψ (o | Id | X) => (ψ | Id | X) .
+	rl [right] : (X | Id | o) ψ => (X | Id | ψ) .
+	rl [left] : < (o | Id | X) L ψ > => < (ψ | Id | X) L > .
+	rl [release] : (ψ | Id | ψ) => ψ (o | Id | o) ψ .
+
+	eq < ψ L P > = < L P ψ > .
+endm
+
+mod DINNER-INIT is
+	protecting PHILOSOPHERS-DINNER .
+
+	op initialList : Nat -> List .
+	op initial : Nat -> Table .
+
+	var N : Nat .
+
+	eq initial(N) = < initialList(N) > .
+
+	eq initialList(0) = empty .
+	eq initialList(s(N)) = initialList(N) (o | N | o) ψ .
+endm

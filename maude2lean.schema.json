@@ -1,0 +1,128 @@
+{
+	"$schema": "http://json-schema.org/draft-07/schema#",
+	"$id": "https://github.com/fadoss/maude2lean/maude2lean.schema.json",
+	"title": "Input settings for the Maude to Lean translator",
+	"description": "Input setting for the Maude to Lean translator",
+	"type": "object",
+	"properties": {
+		"source": {
+			"description": "Path to the input Maude file (or list of paths)",
+			"anyOf": [{
+				"type": "string"
+			}, {
+				"type": "array",
+				"items": {
+					"type": "string"
+				}
+			}],
+			"type": "string"
+		},
+		"module": {
+			"description": "Name of the Maude module to be transformed",
+			"type": "string"
+		},
+		"op-renaming": {
+			"description": "Renaming for operator names",
+			"type": "object",
+			"items": {
+				"type": "string"
+			}
+		},
+		"prefer-quotes": {
+			"description": "Whether to eliminate symbols in operator names or prefer quotes to maintain them",
+			"type": "boolean",
+			"default": false
+		},
+		"use-notation": {
+			"description": "Relations where infix notation is used instead of standard alphanumeric names",
+			"type": "array",
+			"default": [],
+			"uniqueItems": true,
+			"items": {
+				"type": "string",
+				"enum": ["has_sort", "eqa", "eqe", "rw_one", "rw_star"]
+			}
+		},
+		"declare-notation": {
+			"description": "Relations where infix notation is declared (even if not used, use-notation implies this)",
+			"type": "array",
+			"default": [],
+			"uniqueItems": true,
+			"items": {
+				"type": "string",
+				"enum": ["has_sort", "eqa", "eqe", "rw_one", "rw_star"]
+			}
+		},
+		"with-ctor-predicate": {
+			"description": "Whether to define a ctor_only predicate that holds only on constructor terms",
+			"type": "boolean",
+			"default": true
+		},
+		"with-error-free-opt": {
+			"description": "Whether to optimize error-free kinds with a most general sort by removing sort membership premises for it",
+			"type": "boolean",
+			"default": false
+		},
+		"with-lemmas": {
+			"description": "Whether to include simple lemmas derived from the base specification",
+			"type": "boolean",
+			"default": true
+		},
+		"with-aliases": {
+			"description": "Whether to define aliases for the constructors of the inductive relations",
+			"type": "boolean",
+			"default": true
+		},
+		"with-repr": {
+			"description": "Whether to define a pretty printing function for the terms",
+			"type": "boolean",
+			"default": true
+		},
+		"with-rules": {
+			"description": "Whether to include include rewrite rules and rewriting relations",
+			"type": "boolean",
+			"default": true
+		},
+		"with-simp": {
+			"description": "Whether to label statements with the simp, symm, trans, and congr attribute",
+			"type": "boolean",
+			"default": true
+		},
+		"with-sort2kind": {
+			"description": 	"Whether to define the 'kind' function from sorts to their corresponding kind types",
+			"type": "boolean",
+			"default": true
+		},
+		"has-sort-symbol": {
+			"description": "Infix notation for the sort membership relation",
+			"type": "string",
+			"default": "⊳"
+		},
+		"eqa-symbol": {
+			"description": "Infix notation for equality module axioms",
+			"type": "string",
+			"default": "=A"
+		},
+		"eqe-symbol": {
+			"description": "Infix notation for equality modulo equations",
+			"type": "string",
+			"default": "=E"
+		},
+		"rw-one-symbol": {
+			"description": "Infix notation for the one-step rewriting relation",
+			"type": "string",
+			"default": "=>1"
+		},
+		"rw-star-symbol": {
+			"description": "Infix notation for the reflexive and transitive closure of the rewriting relation",
+			"type": "string",
+			"default": "=>*"
+		},
+		"outermost-namespace": {
+			"description": "Name of the outermost namespace (leave empty to omit that namespace)",
+			"type": "string",
+			"default": "Maude"
+		}
+	},
+	"required": ["source"]
+}

@@ -1,0 +1,26 @@
+***
+*** Addition with Peano numbers
+*** 
+
+fmod PEANO is
+	sort NzNat Nat .
+	subsort NzNat < Nat .
+
+	op 0 : -> Nat [ctor] .
+	op s_ : Nat -> NzNat [ctor] .
+
+	op _+_ : Nat Nat -> Nat .
+
+	vars N M : Nat .
+
+	eq N + 0 = N .
+	eq N + s M = s (N + M) .
+endfm
+
+mod PEANO-WITH-RULE is
+	protecting PEANO .
+
+	var N : NzNat .
+
+	rl [cancel] : s N => N .
+endm

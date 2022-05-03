@@ -1,0 +1,16 @@
+{
+	"source": "philosophers.maude",
+	"module": "DINNER-INIT",
+	"with-repr": false,
+	"with-error-free-opt": true,
+	"use-notation": ["has_sort", "rw_one", "rw_star", "eqa", "eqe"],
+	"op-renaming": {
+		"_&_": "bw_and",
+		"_|_": "bw_or",
+		"_>>_": "rshift",
+		"_<<_": "lshift",
+		"_|_|_": "phil",
+		"ψ": "fork",
+		"<_>": "table"
+	}
+}
