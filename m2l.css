@@ -1,0 +1,46 @@
+body {
+	font-family: sans;
+	margin: 2em;
+}
+
+h1 {
+	text-align: center;
+	margin-bottom: 1em;
+}
+
+a {
+	text-decoration: none;
+}
+
+code, pre {
+	font-family: mono;
+}
+
+table {
+	border-collapse: collapse;
+}
+
+table td {
+	border: 1px solid gray;
+	padding: .5ex 2ex .5ex 2ex;
+}
+
+.optable td:nth-child(1) {
+	font-family: mono;
+}
+
+.optable td:nth-child(3) {
+	font-family: mono;
+}
+
+.ctortable {
+	margin-left: 1ex;
+}
+
+.ctortable td:nth-child(3) {
+	text-align: center;
+}
+
+.elem {
+	color: teal;
+}

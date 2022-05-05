@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<head>
+	<meta charset="utf-8">
+	<title>Maude2Lean</title>
+	<link rel="stylesheet" href="m2l.css" type="text/css">
+</head>
+<body>
+<h1>Maude2Lean — Automated translation from Maude to Lean</h1>
+
+<p style="text-align: justify;text-indent: 1em;"><code>maude2lean</code> [<a href="https://doi.org/10.1007/978-3-031-17244-1_16">RuRi22</a>] is a translator of specifications in Rewriting Logic [<a href="https://doi.org/10.1016/0304-3975(92)90305-Y">Mes92</a>] to the Calculus of Inductive Constructions [<a href="https://doi.org/10.1007/BFb0040259">PfPa89</a>]. Given a module in the <a href="https://maude.cs.illinois.edu">Maude</a> specification language, the tool produces a program for the <a href="https://leanprover.github.io/">Lean</a> proof assistant where theorems about the original specification can be proven. Terms, sort membership, equational, and rewriting relations are inductively defined, which enables reasoning about both positive and negative properties of the original models.
+
+
+<p style="text-align: justify;text-indent: 1em;">Its syntax is<blockquote>
+<pre><span style="color: #000080; font-weight: bold">$</span> maude2lean &lt;Maude source or configuration file&gt;<span style="font-family: sans;">+</span> <span style="color: #666666">[</span>-o &lt;output file&gt;<span style="color: #666666">]</span>
+</pre>
+</blockquote>
+<p style="text-align: justify;">where the first argument is the path of either a Maude file or a JSON, YAML, TOML, or Python dictionary specification to customize the translation. The available options are documented in this <a href="refopts.htm">JSON schema</a>, which can be obtained by invoking <code>maude2lean --dump schema</code>, and most of them can also be passed as command-line arguments (use <code>--help</code> to obtain a list of them). Examples are available in the <a href="https://github.com/fadoss/maude2lean/tree/main/test">test</a> directory of the repository.
+
+<h2>Installation</h2>
+
+The program is based on Python (≥ 3.9) and can be installed with
+
+<blockquote>
+<pre>pip install https://github.com/fadoss/maude2lean/releases/download/latest/maude2lean-1.2.2-py3-none-any.whl</pre>
+</blockquote>
+
+Moreover, the <a href="https://github.com/fadoss/maude2lean/releases/tag/latest">releases page</a> also includes an executable bundle <code>maude2lean</code> to be run as a program in Unix-like systems or invoked as <code>python maude2lean</code>. If using the bundle, the <a href="https://pypi.org/project/maude"><code>maude</code></a> Python library should be explicitly installed with <code>pip install maude</code> or equivalent methods.
+
+<h2>Documentation</h2>
+
+<ul>
+	<li><a href="https://doi.org/10.1016/j.jlamp.2024.101005"><i>Maude2Lean: Theorem proving for Maude specifications using Lean</i></a> (JLAMP)
+	<li><a href="https://doi.org/10.1007/978-3-031-17244-1_16"><i>Theorem proving for Maude specifications using Lean</i></a> (ICFEM22)
+	<li><a href="refopts.htm">Reference of translation options</a>
+	<li><a href="refctors.htm">Reference of constructor names and lemmas</a>
+</ul>
+
+Other external useful resources:
+
+<ul>
+	<li><a href="https://maude.lcc.uma.es/maude-manual/">Manual</a> for Maude 3.4
+	<li><a href="https://leanprover.github.io/reference/">Manual</a> and <a href="https://leanprover.github.io/theorem_proving_in_lean/">tutorial</a>  for Lean 3
+	<li><a href="https://leanprover.github.io/lean4/doc/">Manual</a> and <a href="https://leanprover.github.io/theorem_proving_in_lean4/">tutorial</a> for Lean 4
+</ul>
+
+<h2>Examples</h2>
+
+<ul>
+	<li><a href="https://github.com/fadoss/maude2lean/tree/main/test/peano">Associativity and commutativity of the sum for Peano numbers</a>
+	<li><a href="https://github.com/fadoss/maude2lean/tree/main/test/philosophers">Presence of deadlock in the dining philosophers problem</a>
+	<li><a href="https://github.com/fadoss/maude2lean/tree/main/test/ninjas">Consensus in a population protocol</a>
+</ul>
+
+</body>
+</html>

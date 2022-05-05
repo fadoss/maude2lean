@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>Maude2Lean - translation options</title>
+	<link rel="stylesheet" href="m2l.css" type="text/css">
+</head>
+<body>
+	<header style="margin-bottom: 1.5em;">
+		<h2 style="display: inline;">Maude2Lean — Reference of translation options</h2>
+		<a style="float: right;" href="https://raw.githubusercontent.com/fadoss/maude2lean/main/maude2lean/data/maude2lean.schema.json">JSON source</a>
+	</header>
+
+	<table class="optable">
+		<tr>
+			<th>Name</th>
+			<th>Type</th>
+			<th>Default value</th>
+			<th>Description</th>
+		</tr>
+		<tr>
+			<td>description</td>
+			<td>string</td>
+			<td></td>
+			<td>Free-text description of the settings</td>
+		</tr>
+		<tr>
+			<td>source</td>
+			<td>string</td>
+			<td></td>
+			<td>Path to the input Maude file (or list of paths)</td>
+		</tr>
+		<tr>
+			<td>module</td>
+			<td>string</td>
+			<td></td>
+			<td>Name of the Maude module to be transformed (or where to evaluate the metamodule)</td>
+		</tr>
+		<tr>
+			<td>metamodule</td>
+			<td>string</td>
+			<td></td>
+			<td>Metarepresentation of the module to be transformed</td>
+		</tr>
+		<tr>
+			<td>sort-renaming</td>
+			<td>object</td>
+			<td></td>
+			<td>Renaming for sort names</td>
+		</tr>
+		<tr>
+			<td>kind-renaming</td>
+			<td>object</td>
+			<td></td>
+			<td>Renaming for kind names (any sort in the kind can be used as key)</td>
+		</tr>
+		<tr>
+			<td>op-renaming</td>
+			<td>object</td>
+			<td></td>
+			<td>Renaming for operator names</td>
+		</tr>
+		<tr>
+			<td>prefer-quotes</td>
+			<td>Boolean</td>
+			<td>False</td>
+			<td>Whether to eliminate symbols in operator names or prefer quotes to maintain them</td>
+		</tr>
+		<tr>
+			<td>use-notation</td>
+			<td>[<abbr title="any of has_sort, eqa, eqe, rw_one, rw_star">string</abbr>]</td>
+			<td>[]</td>
+			<td>Relations where infix notation is used instead of standard alphanumeric names</td>
+		</tr>
+		<tr>
+			<td>declare-notation</td>
+			<td>[<abbr title="any of has_sort, eqa, eqe, rw_one, rw_star">string</abbr>]</td>
+			<td>[]</td>
+			<td>Relations where infix notation is declared (even if not used, use-notation implies this)</td>
+		</tr>
+		<tr>
+			<td>with-ctor-predicate</td>
+			<td>Boolean</td>
+			<td>True</td>
+			<td>Whether to define a ctor_only predicate that holds only on constructor terms</td>
+		</tr>
+		<tr>
+			<td>with-error-free-opt</td>
+			<td>Boolean</td>
+			<td>False</td>
+			<td>Whether to optimize error-free kinds with a most general sort by removing sort membership premises for it</td>
+		</tr>
+		<tr>
+			<td>with-lemmas</td>
+			<td>Boolean</td>
+			<td>True</td>
+			<td>Whether to include simple lemmas derived from the base specification</td>
+		</tr>
+		<tr>
+			<td>with-aliases</td>
+			<td>Boolean</td>
+			<td>True</td>
+			<td>Whether to define aliases for the constructors of the inductive relations</td>
+		</tr>
+		<tr>
+			<td>with-repr</td>
+			<td>Boolean</td>
+			<td>True</td>
+			<td>Whether to define a pretty printing function for the terms</td>
+		</tr>
+		<tr>
+			<td>with-rules</td>
+			<td>Boolean</td>
+			<td>True</td>
+			<td>Whether to include rewrite rules and rewriting relations</td>
+		</tr>
+		<tr>
+			<td>with-frozen</td>
+			<td>Boolean</td>
+			<td>True</td>
+			<td>Whether the frozen attribute of operators is obeyed by skipping argument rewriting axioms</td>
+		</tr>
+		<tr>
+			<td>with-simp</td>
+			<td>Boolean</td>
+			<td>True</td>
+			<td>Whether to label statements with the simp, symm, trans, and congr attribute</td>
+		</tr>
+		<tr>
+			<td>with-axiom-simp</td>
+			<td>Boolean</td>
+			<td>False</td>
+			<td>Whether to include structural axioms in the simplifier (only useful if with-simp)</td>
+		</tr>
+		<tr>
+			<td>with-sort2kind</td>
+			<td>Boolean</td>
+			<td>True</td>
+			<td>Whether to define the 'kind' function from sorts to their corresponding kind types</td>
+		</tr>
+		<tr>
+			<td>with-derived-as-consts</td>
+			<td>Boolean</td>
+			<td>False</td>
+			<td>Whether operators that are not constructors are translated as constants outside the inductive datatype</td>
+		</tr>
+		<tr>
+			<td>with-derived-as-defs</td>
+			<td>Boolean</td>
+			<td>False</td>
+			<td>Whether compatible non-constructor operators are translated to Lean definitions outside the inductive datatype</td>
+		</tr>
+		<tr>
+			<td>with-native-bool</td>
+			<td>Boolean</td>
+			<td>False</td>
+			<td>Replace Maude's Bool sort by Lean's bool</td>
+		</tr>
+		<tr>
+			<td>split-eqe</td>
+			<td>[string]</td>
+			<td>[]</td>
+			<td>Split the application of an equation on top as a subrelation of eqe for the given kinds</td>
+		</tr>
+		<tr>
+			<td>has-sort-symbol</td>
+			<td>string</td>
+			<td>⊳</td>
+			<td>Infix notation for the sort membership relation</td>
+		</tr>
+		<tr>
+			<td>eqa-symbol</td>
+			<td>string</td>
+			<td>=A</td>
+			<td>Infix notation for equality module axioms</td>
+		</tr>
+		<tr>
+			<td>eqe-symbol</td>
+			<td>string</td>
+			<td>=E</td>
+			<td>Infix notation for equality modulo equations</td>
+		</tr>
+		<tr>
+			<td>rw-one-symbol</td>
+			<td>string</td>
+			<td>=>1</td>
+			<td>Infix notation for the one-step rewriting relation</td>
+		</tr>
+		<tr>
+			<td>rw-star-symbol</td>
+			<td>string</td>
+			<td>=>*</td>
+			<td>Infix notation for the reflexive and transitive closure of the rewriting relation</td>
+		</tr>
+		<tr>
+			<td>outermost-namespace</td>
+			<td>string</td>
+			<td>Maude</td>
+			<td>Name of the outermost namespace (leave empty to omit that namespace)</td>
+		</tr>
+		<tr>
+			<td>with-original-stmt</td>
+			<td>Boolean</td>
+			<td>False</td>
+			<td>Include the original statement as a comment along with its translation</td>
+		</tr>
+		<tr>
+			<td>lean-version</td>
+			<td><abbr title="any of 3, 4">integer</abbr></td>
+			<td>3</td>
+			<td>Lean version to generate code for</td>
+		</tr>
+	</table>
+</body>
+</html>
