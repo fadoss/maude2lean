@@ -3,15 +3,17 @@
 *** 
 
 fmod PEANO is
-	sort NzNat Nat .
-	subsort NzNat < Nat .
+	sort NzNat Even Nat .
+	subsorts NzNat Even < Nat .
 
-	op 0 : -> Nat [ctor] .
+	op 0 : -> Even [ctor] .
 	op s_ : Nat -> NzNat [ctor] .
 
 	op _+_ : Nat Nat -> Nat .
 
 	vars N M : Nat .
+
+	cmb s s N : Even if N : Even .
 
 	eq N + 0 = N .
 	eq N + s M = s (N + M) .
@@ -22,5 +24,5 @@ mod PEANO-WITH-RULE is
 
 	var N : NzNat .
 
-	rl [cancel] : s N => N .
+	crl [cancel] : s N => N if N : Even .
 endm

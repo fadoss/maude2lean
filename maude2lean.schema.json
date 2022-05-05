@@ -79,7 +79,7 @@
 			"default": true
 		},
 		"with-rules": {
-			"description": "Whether to include include rewrite rules and rewriting relations",
+			"description": "Whether to include rewrite rules and rewriting relations",
 			"type": "boolean",
 			"default": true
 		},

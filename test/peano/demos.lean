@@ -232,3 +232,50 @@ begin
     contradiction,
   },
 end
+
+/-- The equation for the sum of a successor also works to the left -/
+lemma s_sum (n m : kNat) (hc : m.ctor_only) : n.s.sum m =E (n.sum m).s :=
+begin
+  induction m,
+  case kNat.zero {
+    simp,
+  },
+  case kNat.s : m hm {
+    rw kNat.ctor_only at hc,
+    simp [*],
+  },
+  case kNat.sum {
+    rw kNat.ctor_only at hc,
+    contradiction,
+  },
+end
+
+/-- The sum of Nat numbers is commutative (on constructor terms) -/
+lemma sum_comm_aux (n m : kNat) (hc : n.ctor_only) (hd : m.ctor_only) : n.sum m =E m.sum n :=
+begin
+  induction m,
+  case kNat.zero {
+    simp [zero_sum n hc],
+  },
+  case kNat.s : o ih {
+    rw kNat.ctor_only at hd,
+    simp [ih hd], -- equational reduction and induction hypothesis in the LHS
+    simp [s_sum o n hc], -- apply s_sum on the RHS
+  },
+  case kNat.sum {
+    rw kNat.ctor_only at hd,
+    contradiction,
+  },
+end
+
+/-- The sum of Nat numbers is commutative -/
+lemma sum_comm (n m : kNat) : n.sum m =E m.sum n :=
+begin
+  -- get constructor terms for n and m
+  cases (sc_nat n) with v hv,
+  cases (sc_nat m) with w hw,
+  -- replace them in the proposition
+  simp [hv.left, hw.left],
+  -- apply sum_comm_aux
+  exact sum_comm_aux v w hv.right hw.right,
+end
