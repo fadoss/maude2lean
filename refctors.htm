@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>Maude2Lean - constructor name reference</title>
+	<link rel="stylesheet" href="m2l.css" type="text/css">
+</head>
+<body>
+	<header>
+		<h2>Maude2Lean — Reference of constructor names and lemmas</h2>
+	</header>
+
+	For every kind <i>k</i> in the Maude specification, an inductive type <span class="elem"><code>k</code><i>s</i></span> is defined where <i>s</i> is the first of the most general sorts in the kind. Moreover, some other inductive types and definitions are generated
+<ul>
+ 	<li>the inductive type <code class="elem">MSort</code> enumerating the sorts of the module,
+ 	<li>the function <span class="elem"><code>kind</code> : <code>MSort</code> → <code>Type</code></span> mapping each sort to its kind,
+ 	<li>the relation <span class="elem"><code>subsort</code> : <code>MSort</code> → <code>MSort</code> → <code>Prop</code></span> specifying the generator of the subsort relation given by the <code>subsort</code> statements in Maude,
+ 	<li>the predicates <span class="elem"><i>k</i><code>.ctor_only</code> : <i>k</i> → <code>Prop</code></span> that holds on terms all whose symbols are constructor terms as indicated by the Maude attribute <code>ctor</code>,
+ 	<li>and the functions <span class="elem"><i>k</i><code>.repr</code> : <i>k</i> → <code>string</code></span> that gives a string representation of a term. 
+</ul>
+
+<p style="text-align: justify;">The last two definitions are families of functions, one for each kind, and their generation is disabled by default (see the <a href="refopts.htm">translation options</a>).
+
+	<h3>Relation constructors</h3>
+
+	The following binary relations are inductively defined for each kind <i>k</i> with the constructors enumerated in the tables below:
+
+<ul>
+	<li><span class="elem"><i>k</i><code>.eqa</code></span> for equality modulo structural axioms (associativity, commutativity, etc),
+	<li><span class="elem"><i>k</i><code>.has_sort</code></span> for the membership of a term in a sort,
+	<li><span class="elem"><i>k</i><code>.eqe</code></span> for equality modulo equations and structural axioms,
+	<li><span class="elem"><i>k</i><code>.rw_one</code></span> for the one-step sequential rule-rewrite relation,
+	<li><span class="elem">and <i>k</i><code>.rw_star</code></span> for the reflexive and transitive closure of the previous.
+</ul>
+
+<p style="text-align: justify;">The constructor <i>c</i> of the relation <i>k</i><code>.</code><i>r</i> can be accessed with <i>k</i><code>.</code><i>r</i><code>.</code><i>c</i>. Moreover, aliases can be declared for some constructors at the kind namespace by enabling the <code>with-aliases</code> option in the configuration. Infix notation can also be defined for the relation with the <code>use-notation</code> option.
+
+<p style="text-align: justify;">Some constructors are the translation of statements (membership axioms, equations, and rules) in the Maude module. Their names in the tables below include a fragment <i>label</i> that will be filled with the label attribute of the statement. In the absence of that attribute, the constructor is labeled with the name of the top symbol of its left-hand side. Names clashes are disambiguated by appending a number to the labels in the order they appear in the Maude source.
+
+	<h4>Equality modulo structural axioms (<code>eqa</code>)</h4>
+
+	<table class="ctortable">
+		<tr>
+			<th>Name</th>
+			<th>Meaning</th>
+			<th>Alias</th>
+		</tr>
+		<tr>
+			<td><code>refl</code></td>
+			<td>Reflexivity</td>
+			<td>✗</td>
+		</tr>
+		<tr>
+			<td><code>symm</code></td>
+			<td>Symmetry</td>
+			<td>✗</td>
+		</tr>
+		<tr>
+			<td><code>trans</code></td>
+			<td>Transitivity</td>
+			<td>✗</td>
+		</tr>
+		<tr>
+			<td><code>eqa_</code><i>f</i></td>
+			<td>Congruence axiom for <i>f</i></td>
+			<td>✓</td>
+		</tr>
+		<tr>
+			<td><i>f</i><code>_comm</code></td>
+			<td>Commutativity for <i>f</i></td>
+			<td>✓</td>
+		</tr>
+		<tr>
+			<td><i>f</i><code>_assoc</code></td>
+			<td>Associativity for <i>f</i></td>
+			<td>✓</td>
+		</tr>
+		<tr>
+			<td><i>f</i><code>_left_id</code></td>
+			<td>Left identity for <i>f</i></td>
+			<td>✓</td>
+		</tr>
+		<tr>
+			<td><i>f</i><code>_right_id</code></td>
+			<td>Right identity for <i>f</i></td>
+			<td>✓</td>
+		</tr>
+		<tr>
+			<td><i>f</i><code>_idem</code></td>
+			<td>Idempotency for <i>f</i></td>
+			<td>✓</td>
+		</tr>
+	</table>
+
+	<h4>Sort membership (<code>has_sort</code>)</h4>
+
+	<table class="ctortable">
+		<tr>
+			<th>Name</th>
+			<th>Meaning</th>
+			<th>Alias</th>
+		</tr>
+		<tr>
+			<td><code>subsort</code></td>
+			<td>Subsort membership implies sort membership (depends on <code>subsort</code>)</td>
+			<td>See lemmas</td>
+		</tr>
+		<tr>
+			<td><i>f</i><code>_decl</code></td>
+			<td>Implicit membership axiom in the operator declaration of <i>f</i></td>
+			<td>✓</td>
+		</tr>
+		<tr>
+			<td><code>mb_</code><i>label</i></td>
+			<td>Explicit membership axiom</td>
+			<td>✓</td>
+		</tr>
+	</table>
+
+	<h4>Equality modulo equations (<code>eqe</code>)</h4>
+
+	<table class="ctortable">
+		<tr>
+			<th>Name</th>
+			<th>Meaning</th>
+			<th>Alias</th>
+		</tr>
+		<tr>
+			<td><code>from_eqa</code></td>
+			<td>Extension of =<sub>A</sub></td>
+			<td>✗</td>
+		</tr>
+		<tr>
+			<td><code>symm</code></td>
+			<td>Symmetry</td>
+			<td>✗</td>
+		</tr>
+		<tr>
+			<td><code>trans</code></td>
+			<td>Transitivity</td>
+			<td>✗</td>
+		</tr>
+		<tr>
+			<td><code>eqe_</code><i>f</i></td>
+			<td>Congruence axiom for <i>f</i></td>
+			<td>✓</td>
+		</tr>
+		<tr>
+			<td><code>eq_</code><i>label</i></td>
+			<td>Explicit equation in Maude</td>
+			<td>✓</td>
+		</tr>
+	</table>
+
+	<h4>One-step sequential rule rewrite (<code>rw_one</code>)</h4>
+
+	<table class="ctortable">
+		<tr>
+			<th>Name</th>
+			<th>Meaning</th>
+			<th>Alias</th>
+		</tr>
+		<tr>
+			<td><code>eqe_left</code></td>
+			<td>Rewriting modulo =<sub>E</sub> (left-hand side)</td>
+			<td>✗</td>
+		</tr>
+		<tr>
+			<td><code>eqe_right</code></td>
+			<td>Rewriting modulo =<sub>E</sub> (right-hand side)</td>
+			<td>✗</td>
+		</tr>
+		<tr>
+			<td><code>symm</code></td>
+			<td>Symmetry</td>
+			<td>✗</td>
+		</tr>
+		<tr>
+			<td><code>trans</code></td>
+			<td>Transitivity</td>
+			<td>✗</td>
+		</tr>
+		<tr>
+			<td><code>sub_</code><i>f</i><sub><i>i</i></sub></td>
+			<td>Rewrite inside the <i>i</i><sup>th</sup> argument of <i>f</i></td>
+			<td>✓</td>
+		</tr>
+		<tr>
+			<td><code>rl_</code><i>label</i></td>
+			<td>Explicit rewrite rule in Maude</td>
+			<td>✓</td>
+		</tr>
+	</table>
+
+	<h4>Rewrite in any number of steps (<code>rw_star</code>)</h4>
+
+	<table class="ctortable">
+		<tr>
+			<th>Name</th>
+			<th>Meaning</th>
+			<th>Alias</th>
+		</tr>
+		<tr>
+			<td><code>step</code></td>
+			<td>Extension of →<sub>R</sub></td>
+			<td>✗</td>
+		</tr>
+		<tr>
+			<td><code>symm</code></td>
+			<td>Symmetry</td>
+			<td>✗</td>
+		</tr>
+		<tr>
+			<td><code>trans</code></td>
+			<td>Transitivity</td>
+			<td>✗</td>
+		</tr>
+	</table>
+
+	<h3 style="margin-top: 2em;">Lemmas</h3>
+
+	<table class="ctortable">
+		<tr>
+			<th>Name</th>
+			<th>Meaning</th>
+		</tr>
+		<tr>
+			<td><code>subsort_</code><i>s</i><code>_</code><i>r</i></td>
+			<td>Terms in a subsort <i>s</i> are in the supersort <i>r</i> (for every pair in the subsort relation generator)</td>
+		</tr>
+		<tr>
+			<td><code>eqe_refl</code></td>
+			<td>Equality modulo equations is reflective</td>
+		</tr>
+		<tr>
+			<td><code>eqa_congr</code></td>
+			<td>=<sub>A</sub> is a congruence for itself</td>
+		</tr>
+		<tr>
+			<td><code>eqe_congr</code></td>
+			<td>=<sub>E</sub> is a congruence for itself</td>
+		</tr>
+		<tr>
+			<td><code>eqa_eqe_congr</code></td>
+			<td>=<sub>A</sub> is a congruence for =<sub>E</sub></td>
+		</tr>
+		<tr>
+			<td><code>eqa_rw_one_congr</code></td>
+			<td>=<sub>A</sub> is a congruence for →<sub>R</sub></td>
+		</tr>
+		<tr>
+			<td><code>eqe_rw_one_congr</code></td>
+			<td>=<sub>E</sub> is a congruence for →<sub>R</sub></td>
+		</tr>
+		<tr>
+			<td><code>eqa_rw_star_congr</code></td>
+			<td>=<sub>A</sub> is a congruence for →<sub>R</sub>*</td>
+		</tr>
+		<tr>
+			<td><code>eqe_rw_star_congr</code></td>
+			<td>=<sub>E</sub> is a congruence for →<sub>R</sub>*</td>
+		</tr>
+		<tr>
+			<td><code>rw_star_sub_</code><i>f</i><sub><i>i</i></sub></td>
+			<td>Sequence of rewrites inside the <i>i</i><sup>th</sup> argument of <i>f</i></td>
+		</tr>
+	</table>
+</body>
+</html>
