@@ -1,0 +1,37 @@
+cff-version: 1.2.0
+message: If you use this software, please cite it as below.
+authors:
+- family-names: Rubio
+  given-names: Rubén
+  orcid: https://orcid.org/0000-0003-2983-3404
+- family-names: Riesco
+  given-names: Adrián
+  orcid: https://orcid.org/0000-0002-9716-4612
+title: Maude to Lean translator
+version: 1.0
+date-released: 2022-10-14
+url: https://github.com/fadoss/maude2lean
+preferred-citation:
+  type: conference-paper
+  doi: 10.1007/978-3-031-17244-1_16
+  authors:
+    - family-names: Rubio
+      given-names: Rubén
+      orcid: https://orcid.org/0000-0003-2983-3404
+    - family-names: Riesco
+      given-names: Adrián
+      orcid: https://orcid.org/0000-0002-9716-4612
+  title: Theorem Proving for Maude Specifications Using Lean
+  conference:
+    name: 23rd International Conference on Formal Engineering Methods (ICFEM) 2022
+    website: https://maude.ucm.es/ICFEM22/
+    date-start: 2022-10-24
+    date-end: 2022-10-27
+  year: 2022
+  month: 10
+  start: 263
+  end: 280
+  volume: 13478
+  collection-title: Lecture Notes in Computer Science
+  publisher:
+    name: Springer

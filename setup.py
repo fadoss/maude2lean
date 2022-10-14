@@ -8,7 +8,7 @@ equational, and rewriting relations are inductively defined.
 
 setuptools.setup(
 	name                          = 'maude2lean',
-	version                       = '0.1',
+	version                       = '1.0',
 	author                        = 'ningit',
 	author_email                  = 'ningit@users.noreply.github.com',
 	description                   = 'Maude to Lean translator',
@@ -17,7 +17,7 @@ setuptools.setup(
 	url                           = 'https://github.com/fadoss/maude2lean',
 	project_urls                  = {
 		'Bug Tracker'   : 'https://github.com/fadoss/maude2lean/issues',
-		'Documentation' : 'https://github.com/fadoss/maude2lean',
+		'Documentation' : 'https://fadoss.github.io/maude2lean',
 		'Source Code'   : 'https://github.com/fadoss/maude2lean'
 	},
 	license                       = 'GPLv3',

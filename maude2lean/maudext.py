@@ -164,3 +164,12 @@ def get_variables_stmt(stmt):
 	get_variables_condition(stmt.getCondition(), varset)
 
 	return varset
+
+
+def is_ctor(symb: maude.Symbol):
+	"""Whether a symbol is a constructor"""
+
+	# In principle, the constructor flag is specific to a declaration
+	# (i.e. a symbol can be a constructor for some argument sorts and
+	# not for others) but we do not make that distinction
+	return any(decl.isConstructor() for decl in symb.getOpDeclarations())

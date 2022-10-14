@@ -10,9 +10,10 @@ from itertools import chain
 import maude
 
 from . import data
+from .def_extractor import get_simple_derived_symbols
 from .graph import Graph
 from .lean import LeanWriter
-from .maudext import MetalevelUtil, get_variables_stmt
+from .maudext import MetalevelUtil, get_variables_stmt, is_ctor
 
 
 def subindex(n: int):
@@ -69,9 +70,10 @@ class Maude2Lean:
 		';': 'scolon',
 	}
 
-	def __init__(self, module: maude.Module, opts: dict):
+	def __init__(self, module: maude.Module, opts: dict, verbose=False):
 		self.mod = module  # Module we are translating
 		self.opts = opts  # User options
+		self.verbose = verbose  # Verbosity level
 
 		self.mlu = MetalevelUtil()
 
@@ -256,6 +258,21 @@ class Maude2Lean:
 		for op, axioms in self.mlu.structural_axioms(self.mod).items():
 			self.all_axioms.setdefault(op.getRangeSort().kind(), []).append((op, axioms))
 
+		# If explicitly selected, non-constructor symbols are translated to
+		# constants outside the inductive type (this only make sense when the
+		# module is sufficiently complete and constructor terms can be taken
+		# without loss of generality). The with-derived-as-defs option below
+		# is independent and complements this one.
+		self.only_ctors = self.opts.get('with-derived-as-consts', False)
+
+		# If explicitly selected in the configuration, check whether some
+		# symbols can be translated to Lean definitions instead of cases
+		# of the inductive type (or constants) for the corresponding kind.
+		self.derived_defs = []
+
+		if self.opts.get('with-derived-as-defs', False):
+			self._extract_defs()
+
 	def _index_statements(self, prefix: str, stmts):
 		"""Index statements by kind"""
 
@@ -295,6 +312,25 @@ class Maude2Lean:
 			stmt_by_kind[kind] = current
 
 		return stmt_by_kind
+
+	def _extract_defs(self):
+		"""Extract Lean definitions from derived Maude operators"""
+
+		# Get the compatible symbols
+		self.derived_defs, recursive = get_simple_derived_symbols(self.mod, verbose=self.verbose)
+
+		# Warn about not checking termination
+		if recursive or any(len(ops) > 1 for ops, _ in self.derived_defs):
+			print(f'\x1b[33;1mWarning:\x1b[0m recursive definitions are not checked '
+			      'to be terminating. Lean will complain if they are not.', file=sys.stderr)
+
+		# Remove that symbols and equations from the index
+		for scc, _ in self.derived_defs:
+			for symb, eqs in scc:
+				kind = symb.getRangeSort().kind()
+
+				self.symbols_kind[kind].remove(symb)
+				self.all_eqs[kind] = [eql for eql in self.all_eqs[kind] if eql[0] not in eqs]
 
 	def _make_fragment(self, fragment: maude.ConditionFragment):
 		"""Build a Lean term for a condition fragment"""
@@ -384,17 +420,18 @@ class Maude2Lean:
 		"""Define a ctor_only predicate for the given kind"""
 		kind_name = self.kinds[kind]
 
-		for op in self.symbols_kind[kind]:
-			# In principle, the constructor flag is specific to a declaration
-			# (i.e. a symbol can be a constructor for some argument sorts and
-			# not for others) but we do not make that distinction
-			if any(d.isConstructor() for d in op.getOpDeclarations()):
-				name, variables = self.symbols[op], make_variables('a', op.arity())
-				lhs = self._make_call(f'{kind_name}.{name}', variables)
-				rhs = ' ∧ '.join(f'{var}.ctor_only' for var in variables)
-				lean.def_case(lhs, rhs if rhs else 'true')
+		pending_symbols = len(self.symbols_kind[kind])
 
-		lean.def_case('_', 'false')
+		for op in filter(is_ctor, self.symbols_kind[kind]):
+			name, variables = self.symbols[op], make_variables('a', op.arity())
+			lhs = self._make_call(f'{kind_name}.{name}', variables)
+			rhs = ' ∧ '.join(f'{var}.ctor_only' for var in variables)
+			lean.def_case(lhs, rhs if rhs else 'true')
+			pending_symbols -= 1
+
+		# Terms with any other operator (if there is one) are not ctor_only
+		if pending_symbols and not self.only_ctors:
+			lean.def_case('_', 'false')
 
 	def _do_mutual_or_simple(self, lean: LeanWriter, kinds, name: str, rtype: str, callback, is_def=False):
 		"""Make a mutual or simple declaration"""
@@ -420,11 +457,60 @@ class Maude2Lean:
 		lean.comment('Predicates recognizing constructor terms')
 		self._do_mutual_or_simple(lean, self.kinds, '{}.ctor_only', '{} → Prop', self._do_ctor_only4kind, is_def=True)
 
+	def _make_signature(self, op: maude.Symbol):
+		"""Build a type for the given operator signature"""
+		signature = tuple(op.domainKind(i) for i in range(op.arity())) + (op.getRangeSort().kind(), )
+		return ' → '.join(self.kinds[kind] for kind in signature)
+
+	def _do_derived_defs(self, lean: LeanWriter):
+		"""Define derived operators as Lean definitions"""
+
+		if self.derived_defs:
+			lean.newline()
+			lean.comment('Definition of derived operators outside the inductive type')
+
+		# Mutually-recursive operators are grouped
+		for scc, non_comp in self.derived_defs:
+			# Qualified names of the operators
+			names = {op: f'{self.kinds[op.getRangeSort().kind()]}.{self.symbols[op]}'
+			         for op, _ in scc}
+
+
+			# When using the only_ctors option, definitions depending on
+			# constants must be marked noncomputable
+			non_comp = 'noncomputable ' if non_comp and self.only_ctors else ''
+
+			# Introduce a mutual definition if required
+			if len(scc) > 1:
+				lean.newline()
+				lean.print(f'{non_comp}mutual def', ', '.join(names.values()))
+				def_kywd = 'with'
+			else:
+				def_kywd = f'{non_comp}def'
+
+			# Write the definition for each operator
+			for op, eqs in scc:
+				lean.newline()
+				signature = ': ' + self._make_signature(op)
+
+				if op.arity() == 0:
+					lean.print(def_kywd, names[op], signature, ':=',
+					           self._translate_term(eqs[0].getRhs()))
+				else:
+					lean.print(def_kywd, names[op], signature)
+					for eq in eqs:
+						args = ' '.join(map(self._translate_term, eq.getLhs().arguments()))
+						lean.def_case(args, self._translate_term(eq.getRhs()))
+
 	def _do_symbols4kind(self, lean: LeanWriter, kind: maude.Kind):
 		"""Handle the symbols with a given target kind"""
 
 		for op in self.symbols_kind[kind]:
 			name = self.symbols[op]
+
+			# Skip symbols that are not constructors
+			if self.only_ctors and not is_ctor(op):
+				continue
 
 			if op.arity() == 0:
 				lean.inductive_ctor(name)
@@ -453,6 +539,26 @@ class Maude2Lean:
 
 			lean.newline()
 			self._do_mutual_or_simple(lean, scc_ext, '{}', 'Type', self._do_symbols4kind)
+
+		# If the only_ctors option is enabled, non-constructor symbols are
+		# defined as constants outside the inductive types for their kinds
+		if self.only_ctors:
+			self._do_symbols_as_consts(lean)
+
+	def _do_symbols_as_consts(self, lean: LeanWriter):
+		"""Declare constants for non-constructor symbols under with-derived-as-consts"""
+
+		lean.newline()
+		lean.comment('Non-constructor operators as constants\n'
+		             '(enabled by option with-derived-as-consts)')
+
+		for kind, ops in self.symbols_kind.items():
+			# Avoid writing empty namespaces when there are no derived symbols
+			if ops := tuple(filter(lambda op: not is_ctor(op), ops)):
+				lean.begin_namespace(self.kinds[kind])
+				for op in ops:
+					lean.decl_constants(self._make_signature(op), self.symbols[op])
+				lean.end_namespace()
 
 	def _do_kind_assignment(self, lean: LeanWriter):
 		"""Build the function mapping its kind to each sort"""
@@ -484,7 +590,7 @@ class Maude2Lean:
 		return f'{args} : {self.kinds[kind]}}}'
 
 	def _make_congruence(self, op: maude.Symbol, relation: str):
-		"""Declare a congurence axiom"""
+		"""Declare a congruence axiom"""
 
 		op_name = self.symbols[op]
 		kind_name = self.kinds[op.getRangeSort().kind()]
@@ -515,6 +621,10 @@ class Maude2Lean:
 			return
 
 		for op in ops:
+			# Skip non-constructor symbols if only_ctors is enabled
+			if self.only_ctors and not is_ctor(op):
+				continue
+
 			op_name = f'{self.kinds[kind]}.{self.symbols[op]}'
 			variables = make_variables('a', op.arity())
 			call = self._make_call(op_name, variables)
@@ -819,6 +929,8 @@ class Maude2Lean:
 		simp_labels = ([f'has_sort.{label}' for label in self.impl_mb_axioms[kind]] +
 		               [f'has_sort.{label}' for mb, label in self.all_mbs.get(kind, ()) if not mb.isNonexec()] +
 		               [f'eqe.{label}' for eq, label in self.all_eqs.get(kind, ()) if not eq.isNonexec()] +
+		               [self.symbols[op] for scc, _ in self.derived_defs
+		                for op, _ in scc if op.getRangeSort().kind() == kind] +
 		               simp_extra)
 
 		if simp_labels:
@@ -1006,13 +1118,14 @@ class Maude2Lean:
 
 		self._warn_special_ops()
 
-		# This is the same as in the axiomatic translation
 		self._do_sorts(lean)
 		self._do_symbols(lean)
 		if self.opts.get('with-sort2kind', True):
 			self._do_kind_assignment(lean)
 		if self.opts.get('with-ctor-predicate', True):
 			self._do_ctor_only(lean)
+
+		self._do_derived_defs(lean)
 
 		self._do_eqa(lean)
 		self._do_equational_relations(lean)

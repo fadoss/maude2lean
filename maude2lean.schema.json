@@ -2,9 +2,13 @@
 	"$schema": "http://json-schema.org/draft-07/schema#",
 	"$id": "https://github.com/fadoss/maude2lean/maude2lean.schema.json",
 	"title": "Input settings for the Maude to Lean translator",
-	"description": "Input setting for the Maude to Lean translator",
+	"description": "Input settings for the Maude to Lean translator",
 	"type": "object",
 	"properties": {
+		"description": {
+			"description": "Free-text description of the settings",
+			"type": "string"
+		},
 		"source": {
 			"description": "Path to the input Maude file (or list of paths)",
 			"anyOf": [{
@@ -92,6 +96,16 @@
 			"description": 	"Whether to define the 'kind' function from sorts to their corresponding kind types",
 			"type": "boolean",
 			"default": true
+		},
+		"with-derived-as-consts": {
+			"description": "Whether operators that are not constructors are translated as constants outside the inductive datatype",
+			"type": "boolean",
+			"default": false
+		},
+		"with-derived-as-defs": {
+			"description": "Whether compatible non-constructor operators are translated to Lean definitions outside the inductive datatype",
+			"type": "boolean",
+			"default": false
 		},
 		"has-sort-symbol": {
 			"description": "Infix notation for the sort membership relation",

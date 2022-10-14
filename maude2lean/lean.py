@@ -103,7 +103,7 @@ class LeanWriter:
 			ord('a') <= n <= ord('z') or
 			# Greek and coptic letters
 			(0x370 <= n <= 0x3ff and c not in 'λΠΣ') or
-			# Letterlike symbols
+			# Letter-like symbols
 			(0x2100 <= n <= 0x214f) or
 			# Low line
 			c == '_' or
