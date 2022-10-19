@@ -8,7 +8,7 @@ equational, and rewriting relations are inductively defined.
 
 setuptools.setup(
 	name                          = 'maude2lean',
-	version                       = '1.0',
+	version                       = '1.0.1',
 	author                        = 'ningit',
 	author_email                  = 'ningit@users.noreply.github.com',
 	description                   = 'Maude to Lean translator',

@@ -73,21 +73,25 @@ def complete(eqs: list, ctors: dict, wks: dict):
 	if not eqs:
 		return ComplStatus('no equations')
 
+	# (1) Equations are unconditional
+	if any(eq.getCondition() for eq in eqs):
+		return ComplStatus('there is a conditional equation')
+
 	# The LHS of equations
 	lhss = [eq.getLhs() for eq in eqs]
 
-	# (1) Left-hand sides are linear
+	# (2) Left-hand sides are linear
 	for lhs in lhss:
 		if not is_linear(lhs):
 			return ComplStatus(f'pattern {lhs} is not linear')
 
-	# (2) Left-hand sides are patterns
+	# (3) Left-hand sides are patterns
 	for lhs in lhss:
 		for arg in lhs.arguments():
 			if not is_pattern(arg):
 				return ComplStatus(f'term {lhs} is not a pattern')
 
-	# (2) Patterns cover all cases
+	# (4) Patterns cover all cases
 	problems = [tuple(tuple(lhs.arguments()) for lhs in lhss)]
 
 	if not problems[0][0] and len(problems[0]) > 1:
