@@ -5,124 +5,46 @@
 import maude
 
 
-class MetalevelUtil:
-	"""Useful functions relying on the metalevel"""
+def get_structural_axioms(module: maude.Module):
+	"""Get the structural axioms of a module"""
 
-	def __init__(self):
-		self.ml = maude.getModule('META-LEVEL')
+	# Kind-indexed dictionary of (operator, axioms) tuples
+	all_axioms = {}
 
-	@staticmethod
-	def _iterable_term(term: maude.Term, empty: str, join: str):
-		"""Iterate over the elements of a list/set term"""
-		top_symbol = str(term.symbol())
+	for op in module.getSymbols():
+		# List of axioms (indicated by a single letter, except for identity
+		# axioms that come with the object-level identity element term)
+		axioms = []
 
-		if top_symbol == empty:
-			return ()
+		if op.hasAttr(maude.OP_COMM):
+			axioms.append('c')
+		if op.hasAttr(maude.OP_ASSOC):
+			axioms.append('a')
+		if op.hasAttr(maude.OP_IDEM):
+			axioms.append('d')
+		if op.hasAttr(maude.OP_LEFT_ID):
+			flag = 'i' if op.hasAttr(maude.OP_RIGHT_ID) else 'l'
+			axioms.append((flag, op.getIdentity()))
+		elif op.hasAttr(maude.OP_RIGHT_ID):
+			axioms.append(('r', op.getIdentity()))
 
-		if top_symbol != join:
-			return term,
+		if axioms:
+			all_axioms[op] = axioms
 
-		return term.arguments()
+	return all_axioms
 
-	@staticmethod
-	def _strip_kind(sort_name: str):
-		"""Get a plain sort name from any sort including error sorts"""
 
-		if sort_name.startswith('`['):
-			return sort_name[2:-2].split('`,', maxsplit=1)[0]
+def get_special_ops(module: maude.Module):
+	"""Get the special operators of the module"""
 
-		return sort_name
+	# List of (operator, id-hook) tuples
+	specials = []
 
-	def _find_symbol(self, op: maude.Term, module: maude.Module):
-		"""Find a symbol from its metadeclaration"""
+	for op in module.getSymbols():
+		if hooks := op.getIdHooks():
+			specials.append((op, hooks[0][0]))
 
-		name, domain, range_s, _ = op.arguments()
-
-		domain = [self._strip_kind(str(ty)[1:]) for ty in
-		          self._iterable_term(domain, 'nil', '__')]
-
-		# Polymorphs are omitted
-		if 'Universal' in domain:
-			return None
-
-		domain = tuple(module.findSort(ty).kind() for ty in domain)
-		range_s = module.findSort(self._strip_kind(str(range_s)[1:])).kind()
-
-		return module.findSymbol(str(name)[1:], domain, range_s)
-
-	def structural_axioms(self, module: maude.Module):
-		"""Get the structural axioms of a module"""
-
-		meta_ops = self.ml.parseTerm(f"upOpDecls('{str(module)}, true)")
-		meta_ops.reduce()
-
-		# Kind-indexed dictionary of (operator, axioms) tuples
-		all_axioms = {}
-
-		for op in self._iterable_term(meta_ops, 'none', '__'):
-			symbol = self._find_symbol(op, module)
-
-			# Polymorphs are not considered
-			if not symbol:
-				continue
-
-			*_, attrs = op.arguments()
-
-			# List of axioms (indicated by a single letter, except for identity
-			# axioms that come with the object-level identity element term)
-			axioms = []
-
-			for attr in self._iterable_term(attrs, 'none', '__'):
-				attr_name = str(attr.symbol())
-
-				if attr_name == 'comm':
-					axioms.append('c')
-				elif attr_name == 'assoc':
-					axioms.append('a')
-				elif attr_name == 'idem':
-					axioms.append('d')
-				elif attr_name.endswith('id'):
-					# Identity attributes take a term as parameter
-					arg = module.downTerm(next(attr.arguments()))
-					# We identify them by l, r, and i
-					axioms.append((attr_name[0], arg))
-
-			if axioms:
-				all_axioms[symbol] = axioms
-
-		return all_axioms
-
-	def special_ops(self, module: maude.Module):
-		"""Get the special operators of the module"""
-
-		meta_ops = self.ml.parseTerm(f"upOpDecls('{str(module)}, true)")
-		meta_ops.reduce()
-
-		# List of (operator, id-hook) tuples
-		specials = []
-
-		for op in self._iterable_term(meta_ops, 'none', '__'):
-			symbol = self._find_symbol(op, module)
-			*_, attrs = op.arguments()
-
-			if not symbol:
-				continue
-
-			for attr in self._iterable_term(attrs, 'none', '__'):
-				attr_name = str(attr.symbol())
-
-				if attr_name == 'special':
-					hook_id = None
-
-					for clause in self._iterable_term(next(attr.arguments()), 'nil', '__'):
-						if str(clause.symbol()) == 'id-hook':
-							name, _ = clause.arguments()
-							hook_id = str(name)[1:]
-							break
-
-					specials.append((symbol, hook_id))
-
-		return specials
+	return specials
 
 
 def get_variables(term: maude.Term, varset: set[maude.Term]):

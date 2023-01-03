@@ -13,7 +13,7 @@ from . import data
 from .def_extractor import get_simple_derived_symbols
 from .graph import Graph
 from .lean import LeanWriter
-from .maudext import MetalevelUtil, get_variables_stmt, is_ctor
+from .maudext import get_variables_stmt, is_ctor, get_structural_axioms, get_special_ops
 
 
 def subindex(n: int):
@@ -42,6 +42,15 @@ def replace(iterable, index: int, elem):
 	"""Replace the index-th element of an iterable by the given one"""
 
 	return ((e if k != index else elem) for k, e in enumerate(iterable))
+
+
+def unique(iterable):
+	"""Remove duplicates from an iterable"""
+	seen = set()
+	for item in iterable:
+		if item not in seen:
+			seen.add(item)
+			yield item
 
 
 class Maude2Lean:
@@ -74,8 +83,6 @@ class Maude2Lean:
 		self.mod = module  # Module we are translating
 		self.opts = opts  # User options
 		self.verbose = verbose  # Verbosity level
-
-		self.mlu = MetalevelUtil()
 
 		# Relation names
 		self.has_sort = '.has_sort '
@@ -114,7 +121,7 @@ class Maude2Lean:
 		        all(LeanWriter.allowed_char(c) for c in name))
 
 	def _translate_name(self, name: str):
-		"""Translate operator name"""
+		"""Translate Maude name"""
 
 		if not self.opts.get('prefer-quotes', False):
 			name = ''.join(self.ID_REPLACE_MAP.get(c, c) for c in name)
@@ -181,11 +188,24 @@ class Maude2Lean:
 
 		self.kind_ordering = graph.topological_scc()
 
+	def _index_sorts(self):
+		"""Index sorts"""
+
+		# List of sorts excluding error sorts
+		sorts = tuple(filter(self._is_proper_sort, self.mod.getSorts()))
+
+		# The user-provided renaming of sorts (if any)
+		sort_renaming = self.opts.get('sort-renaming', {})
+
+		# Name sorts according to the renaming and the Lean constraints
+		self.sorts = {sort: self._translate_name(sort_renaming.get(str(sort), str(sort)))
+		              for sort in sorts}
+
 	def _index_kinds(self):
 		"""Index kind-related stuff"""
 
 		# Kinds are represented as k<first sort name>
-		self.kinds = {k: f'k{k.sort(1)}' for k in self.mod.getKinds()}
+		self.kinds = {k: f'k{self.sorts[k.sort(1)]}' for k in self.mod.getKinds()}
 		self._sort_kinds()
 
 		# Whole kind sorts for error-free kinds (if enabled)
@@ -212,7 +232,7 @@ class Maude2Lean:
 
 			# Maude introduce some artificial symbols for variables
 			# that the library does not hide appropriately
-			if str(range_sort) == str(op):
+			if op.getLineNumber() == '<automatic>':
 				continue
 
 			# We record which kinds are empty (unusual, except in parameterized modules)
@@ -245,6 +265,7 @@ class Maude2Lean:
 	def _index_module(self):
 		"""Index module members"""
 
+		self._index_sorts()
 		self._index_kinds()
 		self._index_symbols()
 
@@ -255,7 +276,7 @@ class Maude2Lean:
 		# Index structural axioms by kind
 		self.all_axioms = {}
 
-		for op, axioms in self.mlu.structural_axioms(self.mod).items():
+		for op, axioms in get_structural_axioms(self.mod).items():
 			self.all_axioms.setdefault(op.getRangeSort().kind(), []).append((op, axioms))
 
 		# If explicitly selected, non-constructor symbols are translated to
@@ -287,6 +308,9 @@ class Maude2Lean:
 			if not label:
 				# The default value is for variables
 				label = self.symbols.get(lhs_symbol, str(lhs_symbol).lower())
+			else:
+				# Labels of parameter modules are prefixed with the invalid $
+				label = label.replace('$', '_')
 
 			names = names_by_kind.setdefault(lhs_symbol.getRangeSort().kind(), [])
 			names.append((stmt, f'{prefix}_{label}'))
@@ -341,7 +365,7 @@ class Maude2Lean:
 		if isinstance(fragment, maude.EqualityCondition) or isinstance(fragment, maude.AssignmentCondition):
 			return f'{kind}.eqe {lhs} {self._translate_term(fragment.getRhs())}'
 		if isinstance(fragment, maude.SortTestCondition):
-			return f'{kind}.has_sort {lhs} MSort.{fragment.getSort()}'
+			return f'{kind}.has_sort {lhs} MSort.{self.sorts[fragment.getSort()]}'
 		if isinstance(fragment, maude.RewriteCondition):
 			return f'{kind}.rw_star {lhs} {self._translate_term(fragment.getRhs())}'
 
@@ -357,7 +381,7 @@ class Maude2Lean:
 	def _declare_notation(self, lean: LeanWriter, option_key: str, default_sym: str, relation: str):
 		"""Declare infix notation for the given relation"""
 		if not self._use_notation(relation):
-			return 
+			return
 
 		symbol = self.opts.get(option_key, default_sym)
 		for kind in self.kinds.values():
@@ -377,7 +401,7 @@ class Maude2Lean:
 		varset = get_variables_stmt(stmt)
 
 		# Build sort membership clauses for the variables in a statement
-		sort_premise = (f'{self.kinds[var.getSort().kind()]}.has_sort {var.getVarName().lower()} MSort.{var.getSort()}'
+		sort_premise = (f'{self.kinds[var.getSort().kind()]}.has_sort {var.getVarName().lower()} MSort.{self.sorts[var.getSort()]}'
 		                for var in varset if self._is_proper_sort(var.getSort())
 		                and var.getSort() not in self.whole_kind_sorts)
 
@@ -394,13 +418,10 @@ class Maude2Lean:
 		lean.newline()
 		lean.comment('Sorts')
 
-		# List of sorts excluding error sorts
-		sorts = tuple(filter(self._is_proper_sort, self.mod.getSorts()))
-
 		lean.begin_inductive('MSort')
 
-		for s in sorts:
-			lean.inductive_ctor(str(s))
+		for sort_name in self.sorts.values():
+			lean.inductive_ctor(sort_name)
 
 		lean.end_inductive()
 
@@ -409,9 +430,10 @@ class Maude2Lean:
 
 		lean.begin_def('subsort', 'MSort', 'MSort', 'Prop')
 
-		for s in sorts:
-			for sb in s.getSubsorts():
-				lean.def_case(f'MSort.{sb} MSort.{s}', 'true')
+		for s, sort_name in self.sorts.items():
+			# Subsorts may be repeated due to a bug in Maude, so we use unique
+			for sb in unique(s.getSubsorts()):
+				lean.def_case(f'MSort.{self.sorts[sb]} MSort.{sort_name}', 'true')
 
 		lean.def_case('_ _', 'false')
 		lean.end_def()
@@ -420,9 +442,17 @@ class Maude2Lean:
 		"""Define a ctor_only predicate for the given kind"""
 		kind_name = self.kinds[kind]
 
-		pending_symbols = len(self.symbols_kind[kind])
+		symbols = self.symbols_kind.get(kind, ())
 
-		for op in filter(is_ctor, self.symbols_kind[kind]):
+		# For empty sorts, we set that everything is a constructor
+		# term since there are no defined operators on them
+		if not symbols:
+			lean.def_case('_', 'true')
+			return
+
+		pending_symbols = len(symbols)
+
+		for op in filter(is_ctor, symbols):
 			name, variables = self.symbols[op], make_variables('a', op.arity())
 			lhs = self._make_call(f'{kind_name}.{name}', variables)
 			rhs = ' ∧ '.join(f'{var}.ctor_only' for var in variables)
@@ -444,7 +474,7 @@ class Maude2Lean:
 			lean.end_def() if is_def else lean.end_inductive()
 
 		else:
-			lean.print('mutual', 'def' if is_def else 'inductive', ', '.join(name.format(kind) for kind in self.kinds.values()))
+			lean.print('mutual', 'def' if is_def else 'inductive', ', '.join(name.format(kind) for kind in kinds.values()))
 			for kind, kind_name in kinds.items():
 				lean.newline()
 				lean.print(f'with {name.format(kind_name)} : {rtype.format(kind_name)}')
@@ -569,8 +599,8 @@ class Maude2Lean:
 
 		lean.begin_def('kind', 'MSort', 'Type')
 
-		for s in sorts:
-			lean.def_case(f'MSort.{s}', self.kinds[s.kind()])
+		for s, s_name in self.sorts.items():
+			lean.def_case(f'MSort.{s_name}', self.kinds[s.kind()])
 
 		lean.end_def()
 
@@ -610,9 +640,16 @@ class Maude2Lean:
 
 		return f'{relation}_{op_name} {args} : {self._make_chain(*premise, rhs)}'
 
+	def _rewritable_args(self, op: maude.Symbol):
+		"""Get the indices of the non-frozen arguments of the symbol"""
+
+		return (set(range(op.arity())) - set(op.getFrozen())
+			if self.opts.get('with-frozen', True)
+			else range(op.arity()))
+
 	def _do_repr4kind(self, lean: LeanWriter, kind: maude.Kind):
 		"""Write translation to string for kind"""
-		ops = self.symbols_kind[kind]
+		ops = self.symbols_kind.get(kind, ())
 
 		# The repr function does not make sense in empty kinds
 		# (but we write a dummy definition since others may refer to it)
@@ -661,7 +698,7 @@ class Maude2Lean:
 		# Warn about special operators
 		bool_hooks = frozenset(('SystemTrue', 'SystemFalse', 'BranchSymbol', 'EqualitySymbol'))
 
-		specials = [op for op, special in self.mlu.special_ops(self.mod) if special not in bool_hooks]
+		specials = [op for op, special in get_special_ops(self.mod) if special not in bool_hooks]
 
 		if specials:
 			print(f'\x1b[33;1mWarning:\x1b[0m the Maude module contains {len(specials)} '
@@ -680,7 +717,7 @@ class Maude2Lean:
 
 		# Congruence axioms
 		lean.comment('\tCongruence axioms for each operator')
-		for op in filter(maude.Symbol.arity, self.symbols_kind[kind]):
+		for op in filter(maude.Symbol.arity, self.symbols_kind.get(kind, ())):
 			lean.print('\t|', self._make_congruence(op, 'eqa'))
 
 		# Structural axioms
@@ -739,13 +776,13 @@ class Maude2Lean:
 					continue
 
 				args = self._make_collapsed_args(op, variables) + ' ' if op.arity() else ''
-				condition = (f'{self.kinds[mtype.kind()]}.has_sort {var} MSort.{mtype}'
+				condition = (f'{self.kinds[mtype.kind()]}.has_sort {var} MSort.{self.sorts[mtype]}'
 				             for var, mtype in zip(variables, domain)
 				             if self._is_proper_sort(mtype))
 
 				label = f'{name}_decl{subindex(k) if len(decls) > 1 else ""}'
 				call = self._make_call(f'{kind_name}.{name}', variables)
-				body = self._make_chain(*condition, f'{kind_name}.has_sort {call} MSort.{range_sort}')
+				body = self._make_chain(*condition, f'{kind_name}.has_sort {call} MSort.{self.sorts[range_sort]}')
 
 				lean.print(f'\t| {label} {args}: {body}')
 				labels.append(label)
@@ -779,7 +816,7 @@ class Maude2Lean:
 			variables = f' {{{variables}}}' if variables else ''
 
 			lean.inductive_ctor(f'{label}{variables}', *premise,
-			                    f'{kind_name}.has_sort {lhs} MSort.{mb.getSort()}')
+			                    f'{kind_name}.has_sort {lhs} MSort.{self.sorts[mb.getSort()]}')
 
 	def _do_eqe4kind(self, lean: LeanWriter, kind: maude.Kind):
 		"""Declare equality modulo equations for a given kind"""
@@ -793,7 +830,7 @@ class Maude2Lean:
 
 		# Congruence axioms
 		lean.comment('\tCongruence axioms for each operator')
-		for op in filter(maude.Symbol.arity, self.symbols_kind[kind]):
+		for op in filter(maude.Symbol.arity, self.symbols_kind.get(kind, ())):
 			lean.print('\t|', self._make_congruence(op, 'eqe'))
 
 		# Equations
@@ -853,7 +890,7 @@ class Maude2Lean:
 		for op in self.symbols_kind.get(kind, ()):
 			op_name = self.symbols[op]
 			variables = make_variables('a', op.arity())
-			for i in range(op.arity()):
+			for i in self._rewritable_args(op):
 				args = ' '.join(variables[:i] + variables[i+1:] + ('a', 'b'))
 				label = f'sub_{op_name}{subindex(i) if op.arity() > 1 else ""}'
 				lean.inductive_ctor(f'{label} {{{args}}}', f'{self.kinds[op.domainKind(i)]}.rw_one a b →'
@@ -977,7 +1014,7 @@ class Maude2Lean:
 			lean.print(f'def {label} := @has_sort.{label}')
 
 		# Congruence axioms
-		for op in filter(maude.Symbol.arity, self.symbols_kind[kind]):
+		for op in filter(maude.Symbol.arity, self.symbols_kind.get(kind, ())):
 			op_name = self.symbols[op]
 			lean.print(f'def eqa_{op_name} := @eqa.eqa_{op_name}')
 			lean.print(f'def eqe_{op_name} := @eqe.eqe_{op_name}')
@@ -1007,11 +1044,11 @@ class Maude2Lean:
 
 			# Subsort relations
 			for sort in map(kind.sort, range(1, kind.nrSorts())):
-				for subsort in sort.getSubsorts():
-					label = f'subsort_{str(subsort).lower()}_{str(sort).lower()}'
+				for subsort in unique(sort.getSubsorts()):
+					label = f'subsort_{self.sorts[subsort].lower()}_{self.sorts[sort].lower()}'
 					lean.print(f'lemma {label} {{t : {kind_name}}} :',
-					           f't{self.has_sort}MSort.{subsort} →\n\t'
-					           f't{self.has_sort}MSort.{sort}',
+					           f't{self.has_sort}MSort.{self.sorts[subsort]} →\n\t'
+					           f't{self.has_sort}MSort.{self.sorts[sort]}',
 					           ':= by apply has_sort.subsort; simp [subsort]')
 
 					simp_axioms.append(label)
@@ -1092,7 +1129,7 @@ class Maude2Lean:
 			for op in self.symbols_kind.get(kind, ()):
 				op_name = self.symbols[op]
 				variables = make_variables('a', op.arity())
-				for i in range(op.arity()):
+				for i in self._rewritable_args(op):
 					args = [f'{var}' if j != i else 'a b' for j, var in enumerate(variables)]
 					args = self._make_collapsed_args(op, args)
 					label = f'sub_{op_name}{subindex(i) if op.arity() > 1 else ""}'

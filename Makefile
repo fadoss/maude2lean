@@ -28,7 +28,7 @@ dist/maude2lean: dist $(RESOURCES) $(CODE)
 	chmod a+x dist/maude2lean
 
 wheel:
-	python setup.py bdist_wheel
+	pip wheel --no-deps -w dist .
 
 dist:
 	mkdir -p dist

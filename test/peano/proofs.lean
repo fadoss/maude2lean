@@ -197,10 +197,8 @@ begin
     simp,
   },
   case kNat.s : o ih {
-    simp,
-    apply kNat.eqe_s,
     rw kNat.ctor_only at oh,
-    exact ih oh,
+    simp [ih oh],
   },
   case kNat.sum : l r hl hr {
     rw kNat.ctor_only at oh,

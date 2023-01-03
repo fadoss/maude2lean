@@ -66,17 +66,31 @@ def handle_input_file(filename: str):
 	return spec
 
 
-def to_lean(module_name: str, spec: dict, ofile, verbose=False):
+def to_lean(spec: dict, ofile, verbose=False):
 	"""Convert a Maude module to a Lean specification"""
 
 	from . import Maude2Lean
 	from .lean import LeanWriter
 
+	module_name = spec.get('module')
 	module = maude.getModule(module_name) if module_name else maude.getCurrentModule()
 
 	if module is None:
-		print(f'Error: the module {module_name} is not valid or does not exist.')
+		print(f'Error: the module {module_name} is not valid or does not exist.',
+		      file=sys.stderr)
 		return 1
+
+	# Use the metamodule as the translation module if provided
+	if metamodule := spec.get('metamodule'):
+		if (module_term := module.parseTerm(metamodule)) is None:
+			print(f'Error: the given metamodule term cannot be parsed in {module_name}.',
+			      file=sys.stderr)
+			return 1
+
+		if (module := maude.downModule(module_term)) is None:
+			print(f'Error: the given metamodule ({metamodule}) is not valid.',
+			      file=sys.stderr)
+			return 1
 
 	trans = Maude2Lean(module, spec, verbose=verbose)
 	lean = LeanWriter(ofile, spec)
@@ -94,24 +108,28 @@ def main():
 	parser.add_argument('source', help='Source file')
 	parser.add_argument('module', help='Module', nargs='?')
 	parser.add_argument('--verbose', '-v', help='Show additional informative messages', action='store_true')
+	parser.add_argument('--no-advise', help='Disable Maude advisory messages', dest='advise', action='store_false')
 	parser.add_argument('-o', help='Output file name')
 
 	args = parser.parse_args()
 
-	maude.init()
+	maude.init(advise=args.advise)
 
 	spec = handle_input_file(args.source)
 
 	if spec is None:
 		return 1
 
-	# Take module from the command line or otherwise from the specification
-	module = args.module if args.module else spec.get('module')
+	# The command-line module overwrites the specification one
+	if args.module:
+		# The argument is seen as a metamodule if there is a space
+		mtype = 'metamodule' if ' ' in args.module else 'module'
+		spec[mtype] = args.module
 
 	# Take output file name from the command line
 	output_file = open(args.o, 'w') if args.o else sys.stdout
 
-	return to_lean(module, spec, output_file, args.verbose)
+	return to_lean(spec, output_file, args.verbose)
 
 
 if __name__ == '__main__':

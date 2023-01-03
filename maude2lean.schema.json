@@ -22,8 +22,19 @@
 			"type": "string"
 		},
 		"module": {
-			"description": "Name of the Maude module to be transformed",
+			"description": "Name of the Maude module to be transformed (or where to evaluate the metamodule)",
 			"type": "string"
+		},
+		"metamodule": {
+			"description": "Metarepresentation of the module to be transformed",
+			"type": "string"
+		},
+		"sort-renaming": {
+			"description": "Renaming for sort names",
+			"type": "object",
+			"items": {
+				"type": "string"
+			}
 		},
 		"op-renaming": {
 			"description": "Renaming for operator names",
@@ -106,6 +117,11 @@
 			"description": "Whether compatible non-constructor operators are translated to Lean definitions outside the inductive datatype",
 			"type": "boolean",
 			"default": false
+		},
+		"with-frozen": {
+			"description": "Whether the frozen attribute of operators is obeyed by skipping argument rewriting axioms",
+			"type": "boolean",
+			"default": true
 		},
 		"has-sort-symbol": {
 			"description": "Infix notation for the sort membership relation",

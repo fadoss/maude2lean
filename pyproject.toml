@@ -1,0 +1,43 @@
+[project]
+name            = 'maude2lean'
+version         = '1.1.0'
+description     = 'Maude to Lean translator'
+license.text    = 'GPLv3'
+classifiers     = [
+	'Programming Language :: Python :: 3',
+	'Intended Audience :: Science/Research',
+	'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
+	'Topic :: Scientific/Engineering',
+	'Operating System :: OS Independent',
+]
+requires-python = '>=3.9'
+dependencies    = ['maude >= 1.2.2']
+
+[[project.authors]]
+name  = 'ningit'
+email = 'ningit@users.noreply.github.com'
+
+[project.readme]
+content-type = 'text/markdown'
+text = '''# A Maude to Lean translator
+
+Translate a Maude module to a Lean specification where terms, sort membership,
+equational, and rewriting relations are inductively defined.
+'''
+
+[project.urls]
+"Homepage"      = 'https://github.com/fadoss/maude2lean'
+"Bug Tracker"   = 'https://github.com/fadoss/maude2lean/issues'
+"Documentation" = 'https://fadoss.github.io/maude2lean'
+"Source Code"   = 'https://github.com/fadoss/maude2lean'
+
+[project.scripts]
+maude2lean = 'maude2lean.__main__:main'
+
+[build-system]
+requires      = ['setuptools', 'wheel']
+build-backend = 'setuptools.build_meta'
+
+[tool.setuptools]
+packages.find.include   = ['maude2lean*']
+package-data.maude2lean = ['data/*']
