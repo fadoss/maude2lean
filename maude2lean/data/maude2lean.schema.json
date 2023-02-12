@@ -135,6 +135,11 @@
 			"type": "boolean",
 			"default": false
 		},
+		"with-native-bool": {
+			"description": "Replace Maude's Bool sort by Lean's bool",
+			"type": "boolean",
+			"default": false
+		},
 		"has-sort-symbol": {
 			"description": "Infix notation for the sort membership relation",
 			"type": "string",
@@ -164,6 +169,11 @@
 			"description": "Name of the outermost namespace (leave empty to omit that namespace)",
 			"type": "string",
 			"default": "Maude"
+		},
+		"with-original-stmt": {
+			"description": "Include the original statement as a comment along with its translation",
+			"type": "boolean",
+			"default": false
 		},
 		"lean-version": {
 			"description": "Lean version to generate code for",

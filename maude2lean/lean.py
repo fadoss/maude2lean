@@ -153,7 +153,7 @@ class Lean3Writer(LeanWriter):
 	def begin_inductive(self, name: str, ctype: str = 'Type'):
 		"""Inductive type declaration header"""
 		kywd = 'with' if self.is_mutual else 'inductive'
-		sign = f' : {ctype}' if ctype != 'Type' else ''
+		sign = f' : {ctype}' if ctype != 'Type' or self.is_mutual else ''
 		self._write(f'{kywd} {name}{sign}\n')
 
 	def decl_notation(self, name: str, prio: int, value: str):
@@ -203,3 +203,8 @@ class Lean4Writer(LeanWriter):
 	def decl_notation(self, name: str, prio: int, value: str):
 		"""Notation declaration"""
 		self._write(f'infix:{prio} " {name} " => {value}\n')
+
+	def decl_constants(self, ctype: str, *names: str):
+		"""Constant declaration"""
+		kwd = 'opaque' if len(names) == 1 else 'opaques'
+		self._write(f'{kwd} {" ".join(names)} : {ctype}\n')

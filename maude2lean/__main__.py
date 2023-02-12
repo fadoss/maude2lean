@@ -150,8 +150,8 @@ def load_schema(argparse, parser):
 
 	# Class for handling Boolean options
 	class BooleanArg(argparse.Action):
-		VALUES = {'yes': True, 'on': True, 'true': True,
-		          'no': False, 'off': False, 'false': False}
+		VALUES = {'yes': True, 'y': True, 'on': True, 'true': True,
+		          'no': False, 'n': False, 'off': False, 'false': False}
 
 		def __init__(self, *args, **kwargs):
 			super().__init__(*args, **kwargs)
