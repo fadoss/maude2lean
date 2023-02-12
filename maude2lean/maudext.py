@@ -42,7 +42,7 @@ def get_special_ops(module: maude.Module):
 
 	for op in module.getSymbols():
 		if hooks := op.getIdHooks():
-			specials.append((op, hooks[0][0]))
+			specials.append((op, hooks[0]))
 
 	return specials
 
@@ -72,9 +72,21 @@ def get_variables_condition(condition: maude.Condition, varset: set[maude.Term])
 		get_variables_cfragment(frag, varset)
 
 
+class FakeSet(dict):
+	"""Set implemented using a dictionary that preserves insertion order"""
+
+	def add(self, elem):
+		self[elem] = None
+
+
 def get_variables_stmt(stmt):
 	"""Get the variables in a statement"""
-	varset = set()
+
+	# Use a modified dictionary instead a set because it preserves
+	# the insertion order, and we want to process variables in the
+	# order they appear in the term. The function user will not
+	# probably notice the difference.
+	varset = FakeSet()
 
 	# Variables in the left- and right-hand side (if any)
 	get_variables(stmt.getLhs(), varset)

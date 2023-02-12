@@ -36,6 +36,13 @@
 				"type": "string"
 			}
 		},
+		"kind-renaming": {
+			"description": "Renaming for kind names (any sort in the kind can be used as key)",
+			"type": "object",
+			"items": {
+				"type": "string"
+			}
+		},
 		"op-renaming": {
 			"description": "Renaming for operator names",
 			"type": "object",
@@ -98,10 +105,20 @@
 			"type": "boolean",
 			"default": true
 		},
+		"with-frozen": {
+			"description": "Whether the frozen attribute of operators is obeyed by skipping argument rewriting axioms",
+			"type": "boolean",
+			"default": true
+		},
 		"with-simp": {
 			"description": "Whether to label statements with the simp, symm, trans, and congr attribute",
 			"type": "boolean",
 			"default": true
+		},
+		"with-axiom-simp": {
+			"description": "Whether to include structural axioms in the simplifier (only useful if with-simp)",
+			"type": "boolean",
+			"default": false
 		},
 		"with-sort2kind": {
 			"description": 	"Whether to define the 'kind' function from sorts to their corresponding kind types",
@@ -117,11 +134,6 @@
 			"description": "Whether compatible non-constructor operators are translated to Lean definitions outside the inductive datatype",
 			"type": "boolean",
 			"default": false
-		},
-		"with-frozen": {
-			"description": "Whether the frozen attribute of operators is obeyed by skipping argument rewriting axioms",
-			"type": "boolean",
-			"default": true
 		},
 		"has-sort-symbol": {
 			"description": "Infix notation for the sort membership relation",
@@ -152,6 +164,12 @@
 			"description": "Name of the outermost namespace (leave empty to omit that namespace)",
 			"type": "string",
 			"default": "Maude"
+		},
+		"lean-version": {
+			"description": "Lean version to generate code for",
+			"type": "integer",
+			"enum": [3, 4],
+			"default": 3
 		}
 	},
 	"required": ["source"]

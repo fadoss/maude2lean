@@ -4,10 +4,13 @@
 
 import sys
 from io import StringIO
+from typing import Iterable
 
 
 class LeanWriter:
-	"""Helper class for writing Lean 3 files"""
+	"""Base class for writing Lean files"""
+
+	TAB = '\t'  # Indentation text (Lean 4 only admit spaces)
 
 	def __init__(self, out=sys.stdout, opts: dict = None):
 		self.out = out
@@ -16,18 +19,15 @@ class LeanWriter:
 
 	def _write(self, msg: str):
 		"""Write an indented line"""
-		self.out.write('\t' * len(self.namespace_stack) + msg)
+		self.out.write(self.TAB * len(self.namespace_stack)
+		               + msg.replace('\t', self.TAB))
 
 	def comment(self, text: str):
 		"""Single line comment"""
 		for line in text.split('\n'):
 			tabs, line = len(line), line.lstrip('\t')
-			tabs = '\t' * (tabs - len(line))
+			tabs = self.TAB * (tabs - len(line))
 			self._write(f'{tabs}-- {line}\n')
-
-	def decl_notation(self, name: str, prio: int, value: str):
-		"""Notation declaration"""
-		self._write(f'infix ` {name} `:{prio} := {value}\n')
 
 	def decl_constants(self, ctype: str, *names: str):
 		"""Constant declaration"""
@@ -50,22 +50,22 @@ class LeanWriter:
 	def inductive_ctor(self, name: str, *sign: str):
 		"""Inductive type constructor"""
 		signature = ' : ' + ' → '.join(sign) if sign else ''
-		self._write(f'\t| {name}{signature}\n')
+		self._write(f'{self.TAB}| {name}{signature}\n')
 
 	def end_inductive(self):
 		"""Inductive type declaration tail"""
 		pass
 
-	def def_case(self, lhs: str, rhs: str):
-		"""Inductive definition case"""
-		self._write(f'\t| {lhs} := {rhs}\n')
-
-	def begin_def(self, name: str, *types: str):
+	def begin_def(self, name: str, *types: str, computable=True):
 		"""Inductive definition header"""
 		self._write(f'def {name} : {" → ".join(types)}\n')
 
 	def end_def(self):
 		"""Inductive definition tail"""
+		pass
+
+	def end_mutual(self):
+		"""Mutual inductive definition tail"""
 		pass
 
 	def begin_namespace(self, name: str):
@@ -117,3 +117,89 @@ class LeanWriter:
 				ord('₀') <= n <= ord('₉')
 			)
 		)
+
+
+class Lean3Writer(LeanWriter):
+	"""Helper class for writing Lean 3 files"""
+
+	def __init__(self, *args, **kwargs):
+		super().__init__(*args, **kwargs)
+		self.is_mutual = False
+
+	def begin_mutual_inductive(self, names: Iterable[str]):
+		"""Mutual inductive definition header"""
+		self._write(f'mutual inductive {", ".join(names)}\n')
+		self.is_mutual = True
+
+	def begin_mutual_def(self, names: Iterable[str], computable=True):
+		"""Mutual inductive definition header"""
+		non_comp = '' if computable else 'noncomputable '
+		self._write(f'{non_comp}mutual def {", ".join(names)}\n')
+		self.is_mutual = True
+
+	def end_mutual(self):
+		"""Mutual inductive definition tail"""
+		self.is_mutual = False
+
+	def def_case(self, rhs: str, *lhs: str):
+		"""Inductive definition case"""
+		self._write(f'{self.TAB}| {" ".join(lhs)} := {rhs}\n')
+
+	def begin_def(self, name: str, *types: str, computable=True):
+		"""Inductive definition header"""
+		kywd = 'with' if self.is_mutual else ('def' if computable else 'noncomputable def')
+		self._write(f'{kywd} {name} : {" → ".join(types)}\n')
+
+	def begin_inductive(self, name: str, ctype: str = 'Type'):
+		"""Inductive type declaration header"""
+		kywd = 'with' if self.is_mutual else 'inductive'
+		sign = f' : {ctype}' if ctype != 'Type' else ''
+		self._write(f'{kywd} {name}{sign}\n')
+
+	def decl_notation(self, name: str, prio: int, value: str):
+		"""Notation declaration"""
+		# Lean 3.50.3 requires giving names to notation declarations
+		# when the same syntax is used twice (this breaks older versions)
+		notation_name = value.replace('.', '_')
+		self._write(f'infix (name := {notation_name}) ` {name} `:{prio} := {value}\n')
+
+
+class Lean4Writer(LeanWriter):
+	"""Helper class for writing Lean 4 files"""
+
+	# Lean 4 does not admit tabs, so we use 2 spaces
+	TAB = '  '
+
+	def begin_mutual_inductive(self, names: Iterable[str]):
+		"""Mutual inductive definition header"""
+		self._write('mutual\n')
+		self.namespace_stack.append(None)
+
+	def begin_mutual_def(self, names: Iterable[str], computable=None):
+		"""Mutual inductive definition header"""
+		self._write('mutual\n')
+		self.namespace_stack.append(None)
+
+	def end_mutual(self):
+		"""Mutual inductive definition tail"""
+		self.namespace_stack.pop()
+		self._write('end\n')
+
+	def begin_def(self, name: str, *types: str, computable=True):
+		"""Inductive definition header"""
+		super().begin_def(name, *types)
+		# Definitions for multiple arguments are not for Lean 4
+		if len(types) > 2:
+			vs = tuple(f'a{k}' for k in range(len(types) - 1))
+			self._write(f':= fun {" ".join(vs)} => '
+			            f'match ({", ".join(vs)}) with\n')
+
+	def def_case(self, rhs: str, *lhs: str):
+		"""Inductive definition case"""
+		# Multiple arguments are matched as a tuple
+		lhs_str = lhs[0] if len(lhs) == 1 else f'({", ".join(lhs)})'
+		self._write(f'{self.TAB}| {lhs_str} => {rhs}\n')
+
+	def decl_notation(self, name: str, prio: int, value: str):
+		"""Notation declaration"""
+		self._write(f'infix:{prio} " {name} " => {value}\n')

@@ -7,6 +7,7 @@ from collections import Counter
 
 import maude
 
+from . import diagnostics as diag
 from .graph import Graph
 from .maudext import is_ctor
 
@@ -26,7 +27,7 @@ class ComplStatus:
 
 
 def preorder(term: maude.Term):
-	"""Get the subterms of the given in preorder"""
+	"""Get the subterms of the given term in preorder"""
 
 	stack = [iter((term,))]
 
@@ -200,7 +201,7 @@ def index_constructors(m: maude.Module):
 
 
 def whole_kind_sorts(m: maude.Module):
-	"""Computes a dictionary from a kind to its whole-kind sort (if any)"""
+	"""Computes a dictionary from kinds to their whole-kind sorts (if any)"""
 
 	wks = {}
 
@@ -261,8 +262,8 @@ def get_simple_derived_symbols(m: maude.Module, cover_nonctor=True, verbose=Fals
 
 			if not status:
 				if verbose:
-					print(f'\x1b[34;1mInfo:\x1b[0m the definition of {symb} '
-					      f'is not convertible to Lean: {status}.', file=sys.stderr)
+					diag.info(f'the definition of {symb} is not '
+					          f'convertible to Lean: {status}.')
 			else:
 				non_ctors[symb.getRangeSort().kind()] -= 1
 				symbs.append((symb, status.closed_kinds))
@@ -281,8 +282,8 @@ def get_simple_derived_symbols(m: maude.Module, cover_nonctor=True, verbose=Fals
 			for i in range(len(symbs)):
 				op, ks = symbs[i - removed]
 				if any(non_ctors[k] for k in ks):
-					print(f'\x1b[34;1mInfo:\x1b[0m the definition of {op} '
-					      f'is not convertible to Lean: {msg}.', file=sys.stderr)
+					diag.info(f'the definition of {op} is not '
+					          f'convertible to Lean: {msg}.')
 					del symbs[i - removed]
 					removed += 1
 					# Check whether the kind of op is affected

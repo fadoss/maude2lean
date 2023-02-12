@@ -5,12 +5,9 @@ lemma generic_congr {α : Type} {rl ru : α → α → Prop}
 	(asymm : ∀ {x y}, rl x y → rl y x)
 	{a₀ a₁ b₀ b₁ : α} : rl a₀ b₀ → rl a₁ b₁ → (ru a₀ a₁) = (ru b₀ b₁) :=
 begin
-	intro h₀,
-	intro h₁,
+	intros h₀ h₁,
 	apply iff.to_eq,
-	apply iff.intro,
-	intro h,
-	exact cright (cleft (asymm h₀) h) h₁,
-	intro h,
-	exact cright (cleft h₀ h) (asymm h₁),
+	split,
+	{ intro h, exact cright (cleft (asymm h₀) h) h₁, },
+	{ intro h, exact cright (cleft h₀ h) (asymm h₁), },
 end

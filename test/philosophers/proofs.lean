@@ -1,6 +1,6 @@
 --
 -- Proof that a deadlock state is always reachable in a dining philosophers
--- example used for model checking in previous works 
+-- example used for model checking in previous works
 --
 -- We proceed in two steps:
 --  1. A term where every philosopher has taken the right fork is reachable
@@ -87,8 +87,8 @@ begin
       apply rw_star_sub_join₁,
       apply rw_star.step,
       apply rl_right,
-      exact nat_l2m_has_sort_nat m,
       exact o_decl,
+      exact nat_l2m_has_sort_nat m,
     -- The expression have saatisfies every_phil_has_right_fork
     simp [every_phil_has_right_fork, h],
     split,
@@ -107,20 +107,20 @@ def every_phil_has_right_fork : Maude.kTable → Prop
   | (initial n) := n =E Maude.kNat.zero
 
 /-- The initial state can be rewritten to a term where every philosopher
-    has a right fork for any number of philosophers -/ 
+    has a right fork for any number of philosophers -/
 theorem has_deadlock (n : ℕ) : ∃ t, (initial (nat_l2m n)) =>* t
                                      ∧ t.every_phil_has_right_fork  :=
 begin
   have h := Maude.kList.has_deadlock n,
   cases h with l h,
   existsi (table l),
-  split,
+  split, {
     -- < l > is reachable
     transitivity (table (Maude.kList.initialList (nat_l2m n))),
     apply rw_star.refl,
     apply eq_initial,
     exact nat_l2m_has_sort_nat n,
-    exact rw_star_sub_table h.left,
+    exact rw_star_sub_table h.left, },
     -- < l > satisfies every_phil_has_right_fork
     rw every_phil_has_right_fork,
     exact h.right,
@@ -284,10 +284,11 @@ begin
   },
   case rw_one.sub_phil₀ : id r l r' hlr h_ff {
     rw every_phil_has_right_fork at h,
-    have hl : no_phil l,
+    have hl : no_phil l, {
       apply (no_phil_eclass h.left).mpr,
       rw no_phil,
       trivial,
+    },
     exact no_phil_deadlock _ _ hl hlr,
   },
   case rw_one.sub_phil₁ : _ _ _ _ hid {
@@ -295,10 +296,11 @@ begin
   },
   case rw_one.sub_phil₂ : l id r r' hlr h_ff {
     rw every_phil_has_right_fork at h,
-    have hr : no_phil r,
+    have hr : no_phil r, {
       apply (no_phil_eclass h.right).mpr,
       rw no_phil,
       trivial,
+    },
     exact no_phil_deadlock _ _ hr hlr,
   },
   case rw_one.sub_join₀ {

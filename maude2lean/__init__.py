@@ -3,17 +3,17 @@
 #
 
 import importlib.resources as pkg_resources
-import sys
 from collections import Counter
 from itertools import chain
 
 import maude
 
-from . import data
+from . import data, maudext, special
+from . import diagnostics as diag
 from .def_extractor import get_simple_derived_symbols
 from .graph import Graph
 from .lean import LeanWriter
-from .maudext import get_variables_stmt, is_ctor, get_structural_axioms, get_special_ops
+from .maudext import is_ctor
 
 
 def subindex(n: int):
@@ -79,6 +79,16 @@ class Maude2Lean:
 		';': 'scolon',
 	}
 
+	# Structural axioms names
+	AXIOM_NAMES = {
+		'a': 'assoc',
+		'c': 'comm',
+		'l': 'left_id',
+		'r': 'right_id',
+		'i': 'id',
+		'd': 'idem'
+	}
+
 	def __init__(self, module: maude.Module, opts: dict, verbose=False):
 		self.mod = module  # Module we are translating
 		self.opts = opts  # User options
@@ -91,25 +101,28 @@ class Maude2Lean:
 		self.rw_one = '.rw_one '
 		self.rw_star = '.rw_star '
 
-		use_notation = opts.get('use-notation', ())
+		use_notation = opts['use-notation']
 
 		if 'eqa' in use_notation:
-			self.eqa = ' ' + opts.get('eqa-symbol', '=A') + ' '
+			self.eqa = ' ' + opts['eqa-symbol'] + ' '
 
 		if 'eqe' in use_notation:
-			self.eqe = ' ' + opts.get('eqe-symbol', '=E') + ' '
+			self.eqe = ' ' + opts['eqe-symbol'] + ' '
 
 		if 'has_sort' in use_notation:
-			self.has_sort = ' ' + opts.get('has-sort-symbol', '⊳') + ' '
+			self.has_sort = ' ' + opts['has-sort-symbol'] + ' '
 
 		if 'rw_one' in use_notation:
-			self.rw_one = ' ' + opts.get('rw-one-symbol', '=>1') + ' '
+			self.rw_one = ' ' + opts['rw-one-symbol'] + ' '
 
 		if 'rw_star' in use_notation:
-			self.rw_star = ' ' + opts.get('rw-star-symbol', '=>*') + ' '
+			self.rw_star = ' ' + opts['rw-star-symbol'] + ' '
 
 		# Implicit membership axiom labels (per kind)
 		self.impl_mb_axioms = {}
+
+		# Lean version
+		self.lean_version = opts['lean-version']
 
 		self._index_module()
 
@@ -123,10 +136,11 @@ class Maude2Lean:
 	def _translate_name(self, name: str):
 		"""Translate Maude name"""
 
-		if not self.opts.get('prefer-quotes', False):
+		if not self.opts['prefer-quotes']:
 			name = ''.join(self.ID_REPLACE_MAP.get(c, c) for c in name)
 
 		# Names starting with _ are reserved for the system in Lean
+		# (the replacement map does this fix when not prefer-quotes)
 		elif name.startswith('_'):
 			name = name.lstrip('_')
 
@@ -134,7 +148,7 @@ class Maude2Lean:
 		if name and not self._allowed_identifier(name):
 			name = f'«{name}»'
 
-		# Use the name join by default for yuxtaposition operators
+		# Use the name join by default for juxtaposition operators
 		return name if name else 'join'
 
 	@staticmethod
@@ -188,6 +202,16 @@ class Maude2Lean:
 
 		self.kind_ordering = graph.topological_scc()
 
+		# Order the kinds in each connected components by
+		# alphabetical order to avoid non-determinism
+		self.kind_ordering = [sorted(scc, key=lambda k: self.kinds[k])
+		                      for scc in self.kind_ordering]
+
+	@staticmethod
+	def _is_proper_sort(sort: maude.Sort):
+		"""Whether it is a proper sort or an error sort"""
+		return not str(sort).startswith('[')
+
 	def _index_sorts(self):
 		"""Index sorts"""
 
@@ -195,23 +219,55 @@ class Maude2Lean:
 		sorts = tuple(filter(self._is_proper_sort, self.mod.getSorts()))
 
 		# The user-provided renaming of sorts (if any)
-		sort_renaming = self.opts.get('sort-renaming', {})
+		sort_renaming = self.opts['sort-renaming']
 
 		# Name sorts according to the renaming and the Lean constraints
 		self.sorts = {sort: self._translate_name(sort_renaming.get(str(sort), str(sort)))
 		              for sort in sorts}
 
+	def _apply_error_free_opt(self):
+		"""Apply the error-free kind optimization"""
+
+		for k in self.mod.getKinds():
+			candidate = k.sort(1)
+
+			# The kind must be error and and have a single main sort
+			if k.errorFree() and k.nrMaximalSorts() == 1:
+				self.whole_kind_sorts.add(candidate)
+				if self.verbose:
+					diag.info(f'{candidate} is a whole-kind sort.')
+
+			# Show why the optimization does not succeed
+			elif self.verbose:
+				causes = []
+				if not k.errorFree():
+					causes.append('is not error-free')
+				if k.nrMaximalSorts() != 1:
+					causes.append('contains multiple maximal sorts')
+				diag.info(f'{k} {" and ".join(causes)}.')
+
 	def _index_kinds(self):
 		"""Index kind-related stuff"""
 
-		# Kinds are represented as k<first sort name>
-		self.kinds = {k: f'k{self.sorts[k.sort(1)]}' for k in self.mod.getKinds()}
+		# The user-provided renaming of kinds
+		kind_renaming = {}
+
+		for sort_name, kind_name in self.opts['kind-renaming'].items():
+			# Any sort in the kind can be used as key
+			# (no warning if the sort is not valid)
+			if sort := self.mod.findSort(sort_name):
+				kind_renaming[sort.kind()] = kind_name
+
+		# Kinds are represented as k<first sort name> by default
+		self.kinds = {k: kind_renaming.get(k, f'k{self.sorts[k.sort(1)]}')
+		              for k in self.mod.getKinds()}
 		self._sort_kinds()
 
 		# Whole kind sorts for error-free kinds (if enabled)
-		self.whole_kind_sorts = {k.sort(1) for k in self.mod.getKinds()
-		                         if k.errorFree() and k.nrMaximalSorts() == 1} \
-			if self.opts.get('with-error-free-opt', False) else set()
+		self.whole_kind_sorts = set()
+
+		if self.opts['with-error-free-opt']:
+			self._apply_error_free_opt()
 
 	def _index_symbols(self):
 		"""Index symbols"""
@@ -224,7 +280,7 @@ class Maude2Lean:
 		non_empty_kinds = set()
 
 		# The user-provided renaming of symbols (if any)
-		op_renaming = self.opts.get('op-renaming', {})
+		op_renaming = self.opts['op-renaming']
 
 		for op in self.mod.getSymbols():
 			range_sort = op.getRangeSort()
@@ -241,7 +297,7 @@ class Maude2Lean:
 
 			# Translate the Maude name to a valid Lean identifier
 			name = str(op)
-			name = op_renaming.get(name) if name in op_renaming else self._translate_name(name)
+			name = op_renaming[name] if name in op_renaming else self._translate_name(name)
 
 			self.symbols[op] = name
 			self.symbols_kind.setdefault(range_kind, []).append(op)
@@ -269,14 +325,17 @@ class Maude2Lean:
 		self._index_kinds()
 		self._index_symbols()
 
+		# Index special symbols
+		extra_eqs = self._index_specials()
+
 		self.all_mbs = self._index_statements('mb', self.mod.getMembershipAxioms())
-		self.all_eqs = self._index_statements('eq', self.mod.getEquations())
+		self.all_eqs = self._index_statements('eq', chain(self.mod.getEquations(), extra_eqs))
 		self.all_rls = self._index_statements('rl', self.mod.getRules())
 
 		# Index structural axioms by kind
 		self.all_axioms = {}
 
-		for op, axioms in get_structural_axioms(self.mod).items():
+		for op, axioms in maudext.get_structural_axioms(self.mod).items():
 			self.all_axioms.setdefault(op.getRangeSort().kind(), []).append((op, axioms))
 
 		# If explicitly selected, non-constructor symbols are translated to
@@ -284,14 +343,14 @@ class Maude2Lean:
 		# module is sufficiently complete and constructor terms can be taken
 		# without loss of generality). The with-derived-as-defs option below
 		# is independent and complements this one.
-		self.only_ctors = self.opts.get('with-derived-as-consts', False)
+		self.only_ctors = self.opts['with-derived-as-consts']
 
 		# If explicitly selected in the configuration, check whether some
 		# symbols can be translated to Lean definitions instead of cases
 		# of the inductive type (or constants) for the corresponding kind.
 		self.derived_defs = []
 
-		if self.opts.get('with-derived-as-defs', False):
+		if self.opts['with-derived-as-defs']:
 			self._extract_defs()
 
 	def _index_statements(self, prefix: str, stmts):
@@ -337,6 +396,11 @@ class Maude2Lean:
 
 		return stmt_by_kind
 
+	def _index_specials(self):
+		"""Index special operators"""
+
+		return special.special_equations(self.mod)
+
 	def _extract_defs(self):
 		"""Extract Lean definitions from derived Maude operators"""
 
@@ -345,16 +409,17 @@ class Maude2Lean:
 
 		# Warn about not checking termination
 		if recursive or any(len(ops) > 1 for ops, _ in self.derived_defs):
-			print(f'\x1b[33;1mWarning:\x1b[0m recursive definitions are not checked '
-			      'to be terminating. Lean will complain if they are not.', file=sys.stderr)
+			diag.warning('recursive definitions are not checked to be terminating.'
+			             ' Lean will complain if they are not.')
 
-		# Remove that symbols and equations from the index
+		# Remove those symbols and equations from the index
 		for scc, _ in self.derived_defs:
 			for symb, eqs in scc:
 				kind = symb.getRangeSort().kind()
 
 				self.symbols_kind[kind].remove(symb)
-				self.all_eqs[kind] = [eql for eql in self.all_eqs[kind] if eql[0] not in eqs]
+				self.all_eqs[kind] = [eql for eql in self.all_eqs[kind]
+				                      if eql[0] not in eqs]  # eql = (eq, label)
 
 	def _make_fragment(self, fragment: maude.ConditionFragment):
 		"""Build a Lean term for a condition fragment"""
@@ -370,38 +435,34 @@ class Maude2Lean:
 			return f'{kind}.rw_star {lhs} {self._translate_term(fragment.getRhs())}'
 
 	def _make_condition(self, condition: maude.Condition):
-		"""Build a Lean term for a Maude condition"""
+		"""Build an iterator over the translated fragments of a Maude condition"""
 		return (self._make_fragment(f) for f in condition)
 
 	def _use_notation(self, name: str):
 		"""Whether notation should be used for a given relation"""
-		return (name in self.opts.get('use-notation', ()) or
-		        name in self.opts.get('declare-notation', ()))
+		return (name in self.opts['use-notation'] or
+		        name in self.opts['declare-notation'])
 
-	def _declare_notation(self, lean: LeanWriter, option_key: str, default_sym: str, relation: str):
+	def _declare_notation(self, lean: LeanWriter, option_key: str, relation: str):
 		"""Declare infix notation for the given relation"""
 		if not self._use_notation(relation):
 			return
 
-		symbol = self.opts.get(option_key, default_sym)
+		symbol = self.opts[option_key]
 		for kind in self.kinds.values():
 			lean.decl_notation(symbol, 40, f'{kind}.{relation}')
 
 		lean.newline()
 
-	@staticmethod
-	def _is_proper_sort(sort: maude.Sort):
-		"""Whether it is a proper sort or an error sort"""
-		return not str(sort).startswith('[')
-
 	def _make_premise(self, stmt):
 		"""Make a premise for a statement"""
 
 		# Get all the variables in the statement
-		varset = get_variables_stmt(stmt)
+		varset = maudext.get_variables_stmt(stmt)
 
 		# Build sort membership clauses for the variables in a statement
-		sort_premise = (f'{self.kinds[var.getSort().kind()]}.has_sort {var.getVarName().lower()} MSort.{self.sorts[var.getSort()]}'
+		sort_premise = (f'{self.kinds[var.getSort().kind()]}.has_sort '
+		                f'{var.getVarName().lower()} MSort.{self.sorts[var.getSort()]}'
 		                for var in varset if self._is_proper_sort(var.getSort())
 		                and var.getSort() not in self.whole_kind_sorts)
 
@@ -433,9 +494,9 @@ class Maude2Lean:
 		for s, sort_name in self.sorts.items():
 			# Subsorts may be repeated due to a bug in Maude, so we use unique
 			for sb in unique(s.getSubsorts()):
-				lean.def_case(f'MSort.{self.sorts[sb]} MSort.{sort_name}', 'true')
+				lean.def_case('true', f'MSort.{self.sorts[sb]}', f'MSort.{sort_name}')
 
-		lean.def_case('_ _', 'false')
+		lean.def_case('false', '_', '_')
 		lean.end_def()
 
 	def _do_ctor_only4kind(self, lean: LeanWriter, kind: maude.Kind):
@@ -447,7 +508,7 @@ class Maude2Lean:
 		# For empty sorts, we set that everything is a constructor
 		# term since there are no defined operators on them
 		if not symbols:
-			lean.def_case('_', 'true')
+			lean.def_case('true', '_')
 			return
 
 		pending_symbols = len(symbols)
@@ -456,41 +517,61 @@ class Maude2Lean:
 			name, variables = self.symbols[op], make_variables('a', op.arity())
 			lhs = self._make_call(f'{kind_name}.{name}', variables)
 			rhs = ' ∧ '.join(f'{var}.ctor_only' for var in variables)
-			lean.def_case(lhs, rhs if rhs else 'true')
+			lean.def_case(rhs if rhs else 'true', lhs)
 			pending_symbols -= 1
 
 		# Terms with any other operator (if there is one) are not ctor_only
 		if pending_symbols and not self.only_ctors:
-			lean.def_case('_', 'false')
+			lean.def_case('false', '_')
 
 	def _do_mutual_or_simple(self, lean: LeanWriter, kinds, name: str, rtype: str, callback, is_def=False):
 		"""Make a mutual or simple declaration"""
 
-		# Give their definitions
+		# This function writes a single or mutually recursive definition of an
+		# inductive relation or function for multiple kinds. The argument name
+		# and r(eturn)type are pattern strings depending on the kind name, and
+		# callback is called to produce the cases for each kind's definition.
+
+		# Write their definitions
 		if len(kinds) == 1:
-			(kind, kind_name), *_ = kinds.items()
-			(lean.begin_def if is_def else lean.begin_inductive)(name.format(kind_name), rtype.format(kind_name))
+			begin, end = (lean.begin_def, lean.end_def) if is_def else \
+			             (lean.begin_inductive, lean.end_inductive)
+
+			(kind, kind_name), = kinds.items()
+
+			begin(name.format(kind_name), rtype.format(kind_name))
 			callback(lean, kind)
-			lean.end_def() if is_def else lean.end_inductive()
+			end()
 
 		else:
-			lean.print('mutual', 'def' if is_def else 'inductive', ', '.join(name.format(kind) for kind in kinds.values()))
+			begin, case = (lean.begin_mutual_def, lean.begin_def) if is_def else \
+			              (lean.begin_mutual_inductive, lean.begin_inductive)
+
+			begin(name.format(kind) for kind in kinds.values())
+
 			for kind, kind_name in kinds.items():
 				lean.newline()
-				lean.print(f'with {name.format(kind_name)} : {rtype.format(kind_name)}')
+				case(name.format(kind_name), rtype.format(kind_name))
 				callback(lean, kind)
+
+			lean.end_mutual()
 
 	def _do_ctor_only(self, lean: LeanWriter):
 		"""Define ctor_only predicates"""
 
 		lean.newline()
 		lean.comment('Predicates recognizing constructor terms')
-		self._do_mutual_or_simple(lean, self.kinds, '{}.ctor_only', '{} → Prop', self._do_ctor_only4kind, is_def=True)
+		self._do_mutual_or_simple(lean, self.kinds, '{}.ctor_only', '{} → Prop',
+		                          self._do_ctor_only4kind, is_def=True)
+
+	def _make_signature_stream(self, op: maude.Symbol):
+		"""Build a type for the given operator signature"""
+		signature = tuple(op.domainKind(i) for i in range(op.arity())) + (op.getRangeSort().kind(), )
+		return (self.kinds[kind] for kind in signature)
 
 	def _make_signature(self, op: maude.Symbol):
 		"""Build a type for the given operator signature"""
-		signature = tuple(op.domainKind(i) for i in range(op.arity())) + (op.getRangeSort().kind(), )
-		return ' → '.join(self.kinds[kind] for kind in signature)
+		return ' → '.join(self._make_signature_stream(op))
 
 	def _do_derived_defs(self, lean: LeanWriter):
 		"""Define derived operators as Lean definitions"""
@@ -505,32 +586,27 @@ class Maude2Lean:
 			names = {op: f'{self.kinds[op.getRangeSort().kind()]}.{self.symbols[op]}'
 			         for op, _ in scc}
 
-
 			# When using the only_ctors option, definitions depending on
 			# constants must be marked noncomputable
-			non_comp = 'noncomputable ' if non_comp and self.only_ctors else ''
+			is_comp = not (non_comp and self.only_ctors)
 
 			# Introduce a mutual definition if required
 			if len(scc) > 1:
 				lean.newline()
-				lean.print(f'{non_comp}mutual def', ', '.join(names.values()))
-				def_kywd = 'with'
-			else:
-				def_kywd = f'{non_comp}def'
+				lean.begin_mutual_def(name.values(), computable=is_comp)
 
 			# Write the definition for each operator
 			for op, eqs in scc:
 				lean.newline()
-				signature = ': ' + self._make_signature(op)
+				signature = self._make_signature_stream(op)
 
-				if op.arity() == 0:
-					lean.print(def_kywd, names[op], signature, ':=',
-					           self._translate_term(eqs[0].getRhs()))
-				else:
-					lean.print(def_kywd, names[op], signature)
-					for eq in eqs:
-						args = ' '.join(map(self._translate_term, eq.getLhs().arguments()))
-						lean.def_case(args, self._translate_term(eq.getRhs()))
+				lean.begin_def(names[op], *signature, computable=is_comp)
+				for eq in eqs:
+					args = map(self._translate_term, eq.getLhs().arguments())
+					lean.def_case(self._translate_term(eq.getRhs()), *args)
+
+			if len(scc) > 1:
+				lean.end_mutual()
 
 	def _do_symbols4kind(self, lean: LeanWriter, kind: maude.Kind):
 		"""Handle the symbols with a given target kind"""
@@ -564,7 +640,7 @@ class Maude2Lean:
 			if all(v in self.empty_kinds for v in scc):
 				continue
 
-			# Prepare a kind to kind name map for _do_mutual_or_simple
+			# Prepare a kind to kind-name map for _do_mutual_or_simple
 			scc_ext = {k: self.kinds[k] for k in scc}
 
 			lean.newline()
@@ -584,7 +660,7 @@ class Maude2Lean:
 
 		for kind, ops in self.symbols_kind.items():
 			# Avoid writing empty namespaces when there are no derived symbols
-			if ops := tuple(filter(lambda op: not is_ctor(op), ops)):
+			if ops := tuple(op for op in ops if is_ctor(op)):
 				lean.begin_namespace(self.kinds[kind])
 				for op in ops:
 					lean.decl_constants(self._make_signature(op), self.symbols[op])
@@ -595,12 +671,10 @@ class Maude2Lean:
 		lean.newline()
 		lean.comment('Kind assignment')
 
-		sorts = tuple(filter(self._is_proper_sort, self.mod.getSorts()))
-
 		lean.begin_def('kind', 'MSort', 'Type')
 
 		for s, s_name in self.sorts.items():
-			lean.def_case(f'MSort.{s_name}', self.kinds[s.kind()])
+			lean.def_case(self.kinds[s.kind()], f'MSort.{s_name}')
 
 		lean.end_def()
 
@@ -644,8 +718,8 @@ class Maude2Lean:
 		"""Get the indices of the non-frozen arguments of the symbol"""
 
 		return (set(range(op.arity())) - set(op.getFrozen())
-			if self.opts.get('with-frozen', True)
-			else range(op.arity()))
+		        if self.opts['with-frozen']
+		        else range(op.arity()))
 
 	def _do_repr4kind(self, lean: LeanWriter, kind: maude.Kind):
 		"""Write translation to string for kind"""
@@ -654,7 +728,7 @@ class Maude2Lean:
 		# The repr function does not make sense in empty kinds
 		# (but we write a dummy definition since others may refer to it)
 		if not ops:
-			lean.def_case('_', '"<empty>"')
+			lean.def_case('"<empty>"', '_')
 			return
 
 		for op in ops:
@@ -667,10 +741,10 @@ class Maude2Lean:
 			call = self._make_call(op_name, variables)
 
 			if op.arity() == 0:
-				lean.def_case(op_name, f'"{op}"')
+				lean.def_case(f'"{op}"', op_name)
 			else:
 				parts = ' ++ ", " ++ '.join(f'({var}.repr)' for var in variables)
-				lean.def_case(call, f'"{op}(" ++ {parts} ++ ")"')
+				lean.def_case(f'"{op}(" ++ {parts} ++ ")"', call)
 
 	def _do_repr(self, lean: LeanWriter):
 		"""Write conversions to string"""
@@ -678,32 +752,41 @@ class Maude2Lean:
 		lean.newline()
 		lean.comment('String conversion')
 
+		# Name of the Lean string type
+		lean_string = 'string' if self.lean_version == 3 else 'String'
+
 		# Prefix notation is used (infix notation would be better...)
 		for scc in self.kind_ordering:
 			# Prepare a kind to kind name dictionary for _do_mutual_or_simple
 			scc_ext = {k: self.kinds[k] for k in scc}
 
 			lean.newline()
-			self._do_mutual_or_simple(lean, scc_ext, '{}.repr', '{} → string', self._do_repr4kind, is_def=True)
+			self._do_mutual_or_simple(lean, scc_ext, '{}.repr', f'{{}} → {lean_string}',
+			                          self._do_repr4kind, is_def=True)
 
 		lean.newline()
 
 		# The class has_repr allows showing elements of these types with #eval
 		for kind in self.symbols_kind.keys():
-			lean.print(f'instance : has_repr {self.kinds[kind]} := ⟨ {self.kinds[kind]}.repr ⟩')
+			if self.lean_version == 3:
+				lean.print(f'instance : has_repr {self.kinds[kind]} := '
+				           f'⟨ {self.kinds[kind]}.repr ⟩')
+			else:
+				lean.print(f'instance : Repr {self.kinds[kind]} := '
+				           f'⟨ λ x _ => Std.Format.text ({self.kinds[kind]}.repr x) ⟩')
 
 	def _warn_special_ops(self):
 		"""Warn about the use of special operators"""
 
 		# Warn about special operators
 		bool_hooks = frozenset(('SystemTrue', 'SystemFalse', 'BranchSymbol', 'EqualitySymbol'))
-
-		specials = [op for op, special in get_special_ops(self.mod) if special not in bool_hooks]
+		specials = [(op, special) for op, special in maudext.get_special_ops(self.mod)
+		            if special[0] not in bool_hooks]
 
 		if specials:
-			print(f'\x1b[33;1mWarning:\x1b[0m the Maude module contains {len(specials)} '
-			      f'special operators like {specials[0]} whose behavior is not defined '
-			      'equationally in Maude.', file=sys.stderr)
+			diag.warning(f'the Maude module contains {len(specials)} '
+			             f'special operators like {specials[0][0]} whose behavior is not '
+			             'equationally defined in Maude.')
 
 	def _do_eqa4kind(self, lean: LeanWriter, kind: maude.Kind):
 		"""Declare equality modulo structural axioms for a given kind"""
@@ -794,7 +877,7 @@ class Maude2Lean:
 
 		kind_name = self.kinds[kind]
 
-		lean.print(f'with {kind_name}.has_sort : {kind_name} → MSort → Prop')
+		lean.begin_inductive(f'{kind_name}.has_sort', f'{kind_name} → MSort → Prop')
 		lean.inductive_ctor('subsort {t a b}',
 		                    f'subsort a b → {kind_name}.has_sort t a → {kind_name}.has_sort t b')
 
@@ -812,7 +895,7 @@ class Maude2Lean:
 			lhs = self._translate_term(mb.getLhs())
 
 			# Variables are added as constructor arguments
-			variables = ' '.join(sorted(v.getVarName().lower() for v in get_variables_stmt(mb)))
+			variables = ' '.join(v.getVarName().lower() for v in maudext.get_variables_stmt(mb))
 			variables = f' {{{variables}}}' if variables else ''
 
 			lean.inductive_ctor(f'{label}{variables}', *premise,
@@ -823,7 +906,7 @@ class Maude2Lean:
 
 		kind_name = self.kinds[kind]
 
-		lean.print(f'with {kind_name}.eqe : {kind_name} → {kind_name} → Prop')
+		lean.begin_inductive(f'{kind_name}.eqe', f'{kind_name} → {kind_name} → Prop')
 		lean.inductive_ctor('from_eqa {a b}', f'{kind_name}.eqa a b → {kind_name}.eqe a b')
 		lean.inductive_ctor('symm {a b}', f'{kind_name}.eqe a b → {kind_name}.eqe b a')
 		lean.inductive_ctor('trans {a b c}', f'{kind_name}.eqe a b → {kind_name}.eqe b c → {kind_name}.eqe a c')
@@ -844,7 +927,7 @@ class Maude2Lean:
 			rhs = self._translate_term(eq.getRhs())
 
 			# Variables are added as constructor arguments
-			variables = ' '.join(sorted(v.getVarName().lower() for v in get_variables_stmt(eq)))
+			variables = ' '.join(v.getVarName().lower() for v in maudext.get_variables_stmt(eq))
 			variables = f' {{{variables}}}' if variables else ''
 
 			lean.inductive_ctor(f'{label}{variables}', *premise, f'{kind_name}.eqe {lhs} {rhs}')
@@ -856,8 +939,9 @@ class Maude2Lean:
 		lean.comment('Sort membership and equality modulo equations')
 		lean.newline()
 
-		lean.print('mutual inductive', ', '.join(f'{kind}.{rel}' for rel in ('has_sort', 'eqe')
-		                                         for kind in self.kinds.values()))
+		lean.begin_mutual_inductive(f'{kind}.{rel}'
+		                            for rel in ('has_sort', 'eqe')
+		                            for kind in self.kinds.values())
 
 		# Sort membership relation
 		for kind in self.kinds:
@@ -869,17 +953,19 @@ class Maude2Lean:
 			self._do_eqe4kind(lean, kind)
 			lean.newline()
 
+		lean.end_mutual()
+
 		# Introduce notation (if desired)
-		self._declare_notation(lean, 'has-sort-symbol', '⊳', 'has_sort')
-		self._declare_notation(lean, 'eqa-symbol', '=A', 'eqa')
-		self._declare_notation(lean, 'eqe-symbol', '=E', 'eqe')
+		self._declare_notation(lean, 'has-sort-symbol', 'has_sort')
+		self._declare_notation(lean, 'eqa-symbol', 'eqa')
+		self._declare_notation(lean, 'eqe-symbol', 'eqe')
 
 	def _do_rw_one4kind(self, lean: LeanWriter, kind: maude.Kind):
 		"""Declare the one-step sequential rule rewrite relation for the given kind"""
 
 		kind_name = self.kinds[kind]
 
-		lean.print(f'with {kind_name}.rw_one : {kind_name} → {kind_name} → Prop')
+		lean.begin_inductive(f'{kind_name}.rw_one', f'{kind_name} → {kind_name} → Prop')
 		lean.inductive_ctor('eqe_left {a b c}',
 		                    f'{kind_name}.eqe a b → {kind_name}.rw_one b c → {kind_name}.rw_one a c')
 		lean.inductive_ctor('eqe_right {a b c}',
@@ -909,7 +995,7 @@ class Maude2Lean:
 			rhs = self._translate_term(rl.getRhs())
 
 			# Variables are added as constructor arguments
-			variables = ' '.join(sorted(v.getVarName().lower() for v in get_variables_stmt(rl)))
+			variables = ' '.join(v.getVarName().lower() for v in maudext.get_variables_stmt(rl))
 			variables = f' {{{variables}}}' if variables else ''
 
 			lean.inductive_ctor(f'{label}{variables}', *premise, f'{kind_name}.rw_one {lhs} {rhs}')
@@ -920,8 +1006,9 @@ class Maude2Lean:
 		lean.comment('Rewriting relations')
 		lean.newline()
 
-		lean.print('mutual inductive', ', '.join(f'{kind}.{rel}' for rel in ('rw_one', 'rw_star')
-		                                         for kind in self.kinds.values()))
+		lean.begin_mutual_inductive(f'{kind}.{rel}'
+		                            for rel in ('rw_one', 'rw_star')
+		                            for kind in self.kinds.values())
 
 		# One-step relation
 		for kind in self.kinds:
@@ -932,15 +1019,46 @@ class Maude2Lean:
 		# (we could define as the reflexive and transitive closure by a definition,
 		# but the one step relation may have mutual dependencies with this one)
 		for kind, kind_name in self.kinds.items():
-			lean.print(f'with {kind_name}.rw_star : {kind_name} → {kind_name} → Prop')
+			lean.begin_inductive(f'{kind_name}.rw_star', f'{kind_name} → {kind_name} → Prop')
 			lean.inductive_ctor('step {a b}', f'{kind_name}.rw_one a b → {kind_name}.rw_star a b')
 			lean.inductive_ctor('refl {a b}', f'{kind_name}.eqe a b → {kind_name}.rw_star a b')
 			lean.inductive_ctor('trans {a b c}', f'{kind_name}.rw_star a b → {kind_name}.rw_star b c → {kind_name}.rw_star a c')
 			lean.newline()
 
+		lean.end_mutual()
+
 		# Introduce notation (if desired)
-		self._declare_notation(lean, 'rw-one-symbol', '=>1', 'rw_one')
-		self._declare_notation(lean, 'rw-star-symbol', '=>*', 'rw_star')
+		self._declare_notation(lean, 'rw-one-symbol', 'rw_one')
+		self._declare_notation(lean, 'rw-star-symbol', 'rw_star')
+
+	def _do_simp4kind(self, lean: LeanWriter, kind: maude.Kind, simp_extra: list[str]):
+		"""Declare the Lean simplifier attribute for the standard axioms"""
+
+		# Definitions for the simplifier
+		simp_labels = (
+			# Implicit membership axioms (i.e. operator declarations)
+			[f'has_sort.{label}' for label in self.impl_mb_axioms[kind]] +
+			# Explicit membership axioms
+			[f'has_sort.{label}' for mb, label in self.all_mbs.get(kind, ()) if not mb.isNonexec()] +
+			# Equations
+			[f'eqe.{label}' for eq, label in self.all_eqs.get(kind, ()) if not eq.isNonexec()] +
+			# Derived definitions (with the derived-as-defs optimization)
+			[self.symbols[op] for scc, _ in self.derived_defs for op, _ in scc
+			 if op.getRangeSort().kind() == kind] +
+			# Other declarations
+			simp_extra)
+
+		# Include structural axioms in the simplifier (if desired)
+		if self.opts['with-axiom-simp']:
+			for op, axioms in self.all_axioms.get(kind, ()):
+				op_name = self.symbols[op]
+
+				for axiom, *_ in axioms:
+					if axiom != 'i':
+						simp_labels.append(f'eqa.{op_name}_{self.AXIOM_NAMES[axiom]}')
+
+		if simp_labels:
+			lean.print('attribute [simp]', ' '.join(simp_labels))
 
 	def _do_equational_attrs4kind(self, lean: LeanWriter, kind: maude.Kind,
 	                              simp_extra: list[str], congr_extra: list[str]):
@@ -962,16 +1080,8 @@ class Maude2Lean:
 		if congr_labels or congr_extra:
 			lean.print('attribute [congr]', ' '.join(congr_labels + congr_extra))
 
-		# Definitions for the simplifier
-		simp_labels = ([f'has_sort.{label}' for label in self.impl_mb_axioms[kind]] +
-		               [f'has_sort.{label}' for mb, label in self.all_mbs.get(kind, ()) if not mb.isNonexec()] +
-		               [f'eqe.{label}' for eq, label in self.all_eqs.get(kind, ()) if not eq.isNonexec()] +
-		               [self.symbols[op] for scc, _ in self.derived_defs
-		                for op, _ in scc if op.getRangeSort().kind() == kind] +
-		               simp_extra)
-
-		if simp_labels:
-			lean.print('attribute [simp]', ' '.join(simp_labels))
+		# Simplifier axioms
+		self._do_simp4kind(lean, kind, simp_extra)
 
 	def _do_rewriting_attrs4kind(self, lean: LeanWriter, kind: maude.Kind):
 		"""Declare Lean attributes for the standard axiom of the rewriting relations"""
@@ -987,22 +1097,12 @@ class Maude2Lean:
 
 		lean.comment('Aliases')
 
-		# Structural axioms
-		axiom_names = {
-			'a': 'assoc',
-			'c': 'comm',
-			'l': 'left_id',
-			'r': 'right_id',
-			'i': 'id',
-			'd': 'idem'
-		}
-
 		for op, axioms in self.all_axioms.get(kind, ()):
 			op_name = self.symbols[op]
 
 			for axiom, *_ in axioms:
 				if axiom != 'i':
-					label = f'{op_name}_{axiom_names[axiom]}'
+					label = f'{op_name}_{self.AXIOM_NAMES[axiom]}'
 					lean.print(f'def {label} := @eqa.{label}')
 
 		# Implicit membership axioms
@@ -1028,9 +1128,17 @@ class Maude2Lean:
 
 		lean.comment('Lemmas and aliases')
 
+		# These variables are used to make lemmas compatible for both Lean 3 and 4
+		lemma, congr_decl, refl_decl = 'lemma', '@[congr] ', '@[refl] ',
+		lambda_sep, extension = ',', 'lean'
+
+		if self.lean_version == 4:
+			lemma, congr_decl, refl_decl = 'theorem', '', ''
+			lambda_sep, extension = ' =>', 'lean4'
+
 		# Write a generic congruence lemma for proving congruences
 		lean.newline()
-		lean.print(pkg_resources.read_text(data, 'generic_congr.lean'))
+		lean.print(pkg_resources.read_text(data, f'generic_congr.{extension}'))
 
 		for kind, kind_name in self.kinds.items():
 
@@ -1046,7 +1154,7 @@ class Maude2Lean:
 			for sort in map(kind.sort, range(1, kind.nrSorts())):
 				for subsort in unique(sort.getSubsorts()):
 					label = f'subsort_{self.sorts[subsort].lower()}_{self.sorts[sort].lower()}'
-					lean.print(f'lemma {label} {{t : {kind_name}}} :',
+					lean.print(f'{lemma} {label} {{t : {kind_name}}} :',
 					           f't{self.has_sort}MSort.{self.sorts[subsort]} →\n\t'
 					           f't{self.has_sort}MSort.{self.sorts[sort]}',
 					           ':= by apply has_sort.subsort; simp [subsort]')
@@ -1056,40 +1164,45 @@ class Maude2Lean:
 			lean.newline()
 			lean.comment('Reflexivity and congruence lemmas')
 
-			lean.print(f'@[refl] lemma eqe_refl (a : {kind_name}) : a{self.eqe}a := eqe.from_eqa eqa.refl')
+			lean.print(f'{refl_decl}{lemma} eqe_refl (a : {kind_name}) : a{self.eqe}a := eqe.from_eqa eqa.refl')
 
 			# Congruence axiom for the relations themselves
-			lean.print(f'lemma eqa_congr {{a b c d : {kind_name}}} : a{self.eqa}b → c{self.eqa}d → '
+			lean.print(f'{lemma} eqa_congr {{a b c d : {kind_name}}} : a{self.eqa}b → c{self.eqa}d → '
 			           f'(a{self.eqa}c) = (b{self.eqa}d)\n\t:= generic_congr @eqa.trans @eqa.trans @eqa.symm')
-			lean.print(f'lemma eqe_congr {{a b c d : {kind_name}}} : a{self.eqe}b → c{self.eqe}d → '
+			lean.print(f'{lemma} eqe_congr {{a b c d : {kind_name}}} : a{self.eqe}b → c{self.eqe}d → '
 			           f'(a{self.eqe}c) = (b{self.eqe}d)\n\t:= generic_congr @eqe.trans @eqe.trans @eqe.symm')
-			lean.print(f'lemma eqa_eqe_congr {{a b c d : {kind_name}}} : a{self.eqa}b → c{self.eqa}d → '
+			lean.print(f'{lemma} eqa_eqe_congr {{a b c d : {kind_name}}} : a{self.eqa}b → c{self.eqa}d → '
 			           f'(a{self.eqe}c) = (b{self.eqe}d)\n\t:= generic_congr '
-			           '(λ x y z, (@eqe.trans x y z) ∘ (@eqe.from_eqa x y))\n\t\t'
-			           '(λ x y z h, (@eqe.trans x y z h) ∘ (@eqe.from_eqa y z)) @eqa.symm')
+			           f'(λ {{x y z}}{lambda_sep} (@eqe.trans x y z) ∘ (@eqe.from_eqa x y))\n\t\t'
+			           f'(λ {{x y z h}}{lambda_sep} (@eqe.trans x y z h) ∘ (@eqe.from_eqa y z)) @eqa.symm')
 
 			congr_axioms = ['eqa_congr', 'eqe_congr', 'eqa_eqe_congr']
 
 			# Write shorter aliases for some definitions
-			if self.opts.get('with-aliases', True):
+			if self.opts['with-aliases']:
 				lean.newline()
 				self._do_equational_aliases4kind(lean, kind)
 
 			# Activate the membership axioms for the Lean simplifier
-			if self.opts.get('with-simp', True):
+			if self.opts['with-simp']:
 				lean.newline()
-				self._do_equational_attrs4kind(lean, kind, simp_axioms, congr_axioms)
+
+				if self.lean_version == 3:
+					self._do_equational_attrs4kind(lean, kind, simp_axioms, congr_axioms)
+				else:
+					self._do_simp4kind(lean, kind, simp_axioms)
 
 			lean.end_namespace()
 
-		if not self.opts.get('with-rules', True):
+		if not self.opts['with-rules']:
 			return
 
 		lean.newline()
 		lean.comment('Lemmas for the rewriting relation')
 
-		# Write the generic infer_sub_star tactic
-		lean.print('\n' + pkg_resources.read_text(data, 'infer_sub_star.lean'))
+		# Write the generic infer_sub_star tactic (only for Lean 3 at the moment)
+		if self.lean_version == 3:
+			lean.print('\n' + pkg_resources.read_text(data, 'infer_sub_star.lean'))
 
 		for kind, kind_name in self.kinds.items():
 			lean.begin_namespace(kind_name)
@@ -1097,27 +1210,33 @@ class Maude2Lean:
 			# Congruence lemmas with respect to =E and =A
 			lean.comment('Congruence lemmas')
 
-			lean.print(f'@[congr] lemma eqe_rw_one_congr {{a b c d : {kind_name}}} : a{self.eqe}b → c{self.eqe}d → '
+			lean.print(f'{congr_decl}{lemma} eqe_rw_one_congr {{a b c d : {kind_name}}} : a{self.eqe}b → c{self.eqe}d → '
 			           f'(a{self.rw_one}c) = (b{self.rw_one}d)\n\t:= generic_congr @rw_one.eqe_left @rw_one.eqe_right @eqe.symm')
-			lean.print(f'@[congr] lemma eqa_rw_one_congr {{a b c d : {kind_name}}} : a{self.eqa}b → c{self.eqa}d → '
+			lean.print(f'{congr_decl}{lemma} eqa_rw_one_congr {{a b c d : {kind_name}}} : a{self.eqa}b → c{self.eqa}d → '
 			           f'(a{self.rw_one}c) = (b{self.rw_one}d)\n\t:= generic_congr '
-			           '(λ x y z, (@rw_one.eqe_left x y z) ∘ (@eqe.from_eqa x y))\n\t\t'
-			           '(λ x y z h, (@rw_one.eqe_right x y z h) ∘ (@eqe.from_eqa y z)) @eqa.symm')
-			lean.print(f'@[congr] lemma eqe_rw_star_congr {{a b c d : {kind_name}}} : a{self.eqe}b → c{self.eqe}d → '
+			           f'(λ {{x y z}}{lambda_sep} (@rw_one.eqe_left x y z) ∘ (@eqe.from_eqa x y))\n\t\t'
+			           f'(λ {{x y z h}}{lambda_sep} (@rw_one.eqe_right x y z h) ∘ (@eqe.from_eqa y z)) @eqa.symm')
+			lean.print(f'{congr_decl}{lemma} eqe_rw_star_congr {{a b c d : {kind_name}}} : a{self.eqe}b → c{self.eqe}d → '
 			           f'(a{self.rw_star}c) = (b{self.rw_star}d)\n\t:= generic_congr '
-			           '(λ x y z, (@rw_star.trans x y z) ∘ (@rw_star.refl x y))\n\t\t'
-			           '(λ x y z h, (@rw_star.trans x y z h) ∘ (@rw_star.refl y z)) @eqe.symm')
-			lean.print(f'@[congr] lemma eqa_rw_star_congr {{a b c d : {kind_name}}} : a{self.eqa}b → c{self.eqa}d → '
+			           f'(λ {{x y z}}{lambda_sep} (@rw_star.trans x y z) ∘ (@rw_star.refl x y))\n\t\t'
+			           f'(λ {{x y z h}}{lambda_sep} (@rw_star.trans x y z h) ∘ (@rw_star.refl y z)) @eqe.symm')
+			lean.print(f'{congr_decl}{lemma} eqa_rw_star_congr {{a b c d : {kind_name}}} : a{self.eqa}b → c{self.eqa}d → '
 			           f'(a{self.rw_star}c) = (b{self.rw_star}d)\n\t:= generic_congr '
-			           '(λ x y z, (@rw_star.trans x y z) ∘ (@rw_star.refl x y) ∘ (@eqe.from_eqa x y))\n\t\t'
-			           '(λ x y z h, (@rw_star.trans x y z h) ∘ (@rw_star.refl y z) ∘ (@eqe.from_eqa y z)) @eqa.symm')
+			           f'(λ {{x y z}}{lambda_sep} (@rw_star.trans x y z) ∘ (@rw_star.refl x y) ∘ (@eqe.from_eqa x y))\n\t\t'
+			           f'(λ {{x y z h}}{lambda_sep} (@rw_star.trans x y z h) ∘ (@rw_star.refl y z) ∘ (@eqe.from_eqa y z)) @eqa.symm')
 
 			# Aliases for the rewrite rules
-			if self.opts.get('with-aliases', True) and kind in self.all_rls:
+			if self.opts['with-aliases'] and kind in self.all_rls:
 				lean.newline()
 				lean.comment('Aliases for rewrite rules')
 				for rl, label in self.all_rls.get(kind, ()):
 					lean.print(f'def {label} := @rw_one.{label}')
+
+			# Lean 4 does not currently support the refl and trans attributes
+			# and we have not adapted the infer_sub_star metaproof to Lean 4
+			if self.lean_version == 4:
+				lean.end_namespace()
+				continue
 
 			# Attributes (even without with-simp, since they are required for the lemmas)
 			self._do_rewriting_attrs4kind(lean, kind)
@@ -1133,7 +1252,7 @@ class Maude2Lean:
 					args = [f'{var}' if j != i else 'a b' for j, var in enumerate(variables)]
 					args = self._make_collapsed_args(op, args)
 					label = f'sub_{op_name}{subindex(i) if op.arity() > 1 else ""}'
-					lean.print(f'lemma rw_star_{label} {args} : a{self.rw_star}b →\n\t\t'
+					lean.print(f'{lemma} rw_star_{label} {args} : a{self.rw_star}b →\n\t\t'
 					           f'{self._make_call(op_name, replace(variables, i, "a"))}{self.rw_star}'
 					           f'{self._make_call(op_name, replace(variables, i, "b"))} := by '
 					           f'infer_sub_star ``(rw_one.{label}) ``(eqe.eqe_{op_name})')
@@ -1144,7 +1263,7 @@ class Maude2Lean:
 		"""Do the translation"""
 
 		# By default, everything is inserted into the Maude namespace
-		outermost_namespace = self.opts.get('outermost-namespace', 'Maude')
+		outermost_namespace = self.opts['outermost-namespace']
 
 		if outermost_namespace:
 			lean.print('namespace', outermost_namespace)
@@ -1157,9 +1276,9 @@ class Maude2Lean:
 
 		self._do_sorts(lean)
 		self._do_symbols(lean)
-		if self.opts.get('with-sort2kind', True):
+		if self.opts['with-sort2kind']:
 			self._do_kind_assignment(lean)
-		if self.opts.get('with-ctor-predicate', True):
+		if self.opts['with-ctor-predicate']:
 			self._do_ctor_only(lean)
 
 		self._do_derived_defs(lean)
@@ -1167,13 +1286,13 @@ class Maude2Lean:
 		self._do_eqa(lean)
 		self._do_equational_relations(lean)
 
-		if self.opts.get('with-rules', True):
+		if self.opts['with-rules']:
 			self._do_rewriting_relations(lean)
 
-		if self.opts.get('with-lemmas', True):
+		if self.opts['with-lemmas']:
 			self._do_lemmas(lean)
 
-		if self.opts.get('with-repr', True):
+		if self.opts['with-repr']:
 			self._do_repr(lean)
 
 		if outermost_namespace:
