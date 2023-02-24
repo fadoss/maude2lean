@@ -23,7 +23,7 @@ def subindex(n: int):
 	sub = chr(zero + (n % 10))
 
 	while n >= 10:
-		n /= 10
+		n //= 10
 		sub = chr(zero + (n % 10)) + sub
 
 	return sub
@@ -94,6 +94,7 @@ class Maude2Lean:
 		'\\': 'bslash',
 		':': 'colon',
 		';': 'scolon',
+		"'": 'prime',
 	}
 
 	# Structural axioms names
@@ -132,7 +133,8 @@ class Maude2Lean:
 		"""Check whether the given name is a valid Lean identifier"""
 
 		return (LeanWriter.allowed_char(name[:1], first=True) and
-		        all(LeanWriter.allowed_char(c) for c in name))
+		        all(LeanWriter.allowed_char(c) for c in name) and
+		        name not in LeanWriter.RESERVED)
 
 	def _translate_name(self, name: str):
 		"""Translate Maude name"""
@@ -343,14 +345,14 @@ class Maude2Lean:
 		self.all_eqs = self._index_statements('eq', chain(self.mod.getEquations(), extra_eqs))
 		self.all_rls = self._index_statements('rl', self.mod.getRules())
 
-		# Handle kinds mapped to native Lean types
-		self._index_native()
-
 		# Index structural axioms by kind
 		self.all_axioms = {}
 
 		for op, axioms in maudext.get_structural_axioms(self.mod).items():
 			self.all_axioms.setdefault(op.getRangeSort().kind(), []).append((op, axioms))
+
+		# Handle kinds mapped to native Lean types
+		self._index_native()
 
 		# If explicitly selected, non-constructor symbols are translated to
 		# constants outside the inductive type (this only make sense when the
@@ -464,14 +466,13 @@ class Maude2Lean:
 			bool_eqs = self.all_eqs.pop(bool_kind)
 			# Membership axioms do not longer make sense
 			self.all_mbs.pop(bool_kind, None)
+			# Structural axioms for the additional symbols only
+			self.all_axioms[bool_kind] = [(op, axioms) for op, axioms in self.all_axioms[bool_kind]
+			                              if op not in translate]
 
 			# This makes that standard equality is used instead of =E for bool
 			self.eqa.replace(lean_name, '{} = {}')
 			self.eqe.replace(lean_name, '{} = {}')
-			# This is because a strange bug in Lean: it complains about
-			# a.rw_star b with a : bool saying that bool.rw_star does not
-			# exist, but admits bool.rw_star a b
-			self.rw_star.replace(lean_name, '{kind}.rw_star {} {}')
 
 			self.native_kinds[bool_kind] = SpecialKind(lean_name, self.symbols_kind.pop(bool_kind), bool_eqs)
 			self.native_symbols = translate
@@ -532,12 +533,25 @@ class Maude2Lean:
 		if relation in self.opts['use-notation']:
 			relfmt.fmt = f'{{}} {symbol} {{}}'
 		else:
+			original_fmt = relfmt.fmt
 			relfmt.fmt = f'{{}}.{relation} {{}}'
+
+			# We introduce the definitions for the native type T
+			# in the namespace Maude.T instead of T, so the dot
+			# notation does not work for them
+			if relation.startswith('rw_'):
+				for kind in self.native_kinds.values():
+					relfmt.replace(kind.name, original_fmt)
 
 		# Declare the notation if any of use-notation or declare-notation
 		if self._should_declare_notation(relation):
 			for kind in self.kinds.values():
 				lean.decl_notation(symbol, 40, f'{kind}.{relation}')
+
+			# The rewriting relations are also defined for native kinds
+			if relation.startswith('rw_'):
+				for kind in self.native_kinds.values():
+					lean.decl_notation(symbol, 40, f'{kind.name}.{relation}')
 
 			lean.newline()
 
@@ -609,7 +623,8 @@ class Maude2Lean:
 		for op in filter(is_ctor, symbols):
 			name, variables = self.symbols[op], make_variables('a', op.arity())
 			lhs = self._make_call(f'{kind_name}.{name}', variables)
-			rhs = ' ∧ '.join(f'{var}.ctor_only' for var in variables)
+			rhs = ' ∧ '.join(f'{var}.ctor_only' for i, var in enumerate(variables)
+			                 if op.domainKind(i) not in self.native_kinds)
 			lean.def_case(rhs if rhs else 'true', lhs)
 			pending_symbols -= 1
 
@@ -762,7 +777,7 @@ class Maude2Lean:
 
 		for kind, ops in self.symbols_kind.items():
 			# Avoid writing empty namespaces when there are no derived symbols
-			if ops := tuple(op for op in ops if is_ctor(op)):
+			if ops := tuple(op for op in ops if not is_ctor(op)):
 				lean.begin_namespace(self.kinds[kind])
 				for op in ops:
 					lean.decl_constants(self._make_signature(op), self.symbols[op])
@@ -796,10 +811,29 @@ class Maude2Lean:
 
 		for kind, info in self.native_kinds.items():
 			# If there is none, do nothing
-			if not info.eqs:
+			if not info.eqs and not info.ops:
 				continue
 
 			lean.begin_namespace(info.name)
+
+			# Congruence axioms
+			if info.ops:
+				lean.comment('Congruence axioms')
+
+			for op in filter(maude.Symbol.arity, info.ops):
+				lean.print(f'axiom {self._make_congruence(op, self.eqe)}')
+
+			if self.all_axioms.get(kind):
+				lean.comment('Structural axioms')
+
+			# Structural axioms
+			for op, axioms in self.all_axioms.get(kind, ()):
+				for name, *args in self._make_eqa_formulas(op, axioms):
+					lean.print(f'axiom {name} : {" → ".join(args)}')
+
+			# Standard equations
+			if info.eqs:
+				lean.comment('Equations')
 
 			for eq, label in info.eqs:
 				premise = self._make_premise(eq)
@@ -868,7 +902,7 @@ class Maude2Lean:
 		"""Declare a congruence axiom"""
 
 		op_name = self.symbols[op]
-		kind_name = self.kinds[op.getRangeSort().kind()]
+		kind_name = self._kind(op.getRangeSort().kind())
 		full_op_name = f'{kind_name}.{op_name}'
 		avars = make_variables('a', op.arity())
 		bvars = make_variables('b', op.arity())
@@ -963,6 +997,37 @@ class Maude2Lean:
 			             f'special operators like {specials[0][0]} whose behavior is not '
 			             'equationally defined in Maude.')
 
+	def _make_eqa_formulas(self, op, axioms):
+		"""Obtain the equations for structural axioms"""
+
+		kind_name = self._kind(op.getRangeSort().kind())
+		op_name = self.symbols[op]
+		op_call = f'{kind_name}.{op_name}'
+
+		for axiom, *args in axioms:
+			if axiom == 'a':
+				yield (f'{op_name}_assoc {{a b c}}',
+				       self.eqa(f'({op_call} a ({op_call} b c))',
+				                f'({op_call} ({op_call} a b) c)',
+				                kind=kind_name))
+			elif axiom == 'c':
+				yield (f'{op_name}_comm {{a b}}',
+				       self.eqa(f'({op_call} a b)', f'({op_call} b a)', kind=kind_name))
+
+			elif axiom in 'lri':
+				if axiom != 'r':
+					yield (f'{op_name}_left_id {{a}}',
+					       self.eqa(f'({op_call} {self._translate_term(args[0])} a)',
+					                'a', kind=kind_name))
+				if axiom != 'l':
+					yield (f'{op_name}_right_id {{a}}',
+					       self.eqa(f'({op_call} a {self._translate_term(args[0])})',
+					                'a', kind=kind_name))
+			elif axiom == 'd':
+				yield (f'{op_name}_idem {{a}}',
+				       self.eqa(f'({op_call} ({op_call} a))',
+				                f'({op_call} a)', kind=kind_name))
+
 	def _do_eqa4kind(self, lean: LeanWriter, kind: maude.Kind):
 		"""Declare equality modulo structural axioms for a given kind"""
 
@@ -984,28 +1049,8 @@ class Maude2Lean:
 
 		lean.comment('\tStructural axioms')
 		for op, axioms in self.all_axioms[kind]:
-			op_name = self.symbols[op]
-			op_call = f'{kind_name}.{op_name}'
-
-			for axiom, *args in axioms:
-				if axiom == 'a':
-					lean.inductive_ctor(f'{op_name}_assoc {{a b c}}',
-					                    f'{kind_name}.eqa ({op_call} a ({op_call} b c)) '
-					                    f'({op_call} ({op_call} a b) c)')
-				elif axiom == 'c':
-					lean.inductive_ctor(f'{op_name}_comm {{a b}}',
-					                    f'{kind_name}.eqa ({op_call} a b) ({op_call} b a)')
-
-				elif axiom in 'lri':
-					if axiom != 'r':
-						lean.inductive_ctor(f'{op_name}_left_id {{a}}',
-						                    f'{kind_name}.eqa ({op_call} {self._translate_term(args[0])} a) a')
-					if axiom != 'l':
-						lean.inductive_ctor(f'{op_name}_right_id {{a}}',
-						                    f'{kind_name}.eqa ({op_call} a {self._translate_term(args[0])}) a')
-				elif axiom == 'd':
-					lean.inductive_ctor(f'{op_name}_idem {{a}}',
-					                    f'{kind_name}.eqa ({op_call} ({op_call} a)) ({op_call} a)')
+			for args in self._make_eqa_formulas(op, axioms):
+				lean.inductive_ctor(*args)
 
 	def _do_eqa(self, lean: LeanWriter):
 		"""Declare an inductive relation for equality modulo structural axioms"""
@@ -1321,6 +1366,24 @@ class Maude2Lean:
 		for _, label in self.all_eqs.get(kind, ()):
 			lean.print(f'def {label} := @eqe.{label}')
 
+	def _do_rw_star_lemma(self, lean: LeanWriter, ops: list[maude.Symbol], prefix='eqe.'):
+		"""Introduce the congruence lemma of =>* for each operator"""
+
+		lemma = 'lemma' if self.lean_version == 3 else 'theorem'
+
+		for op in ops:
+			op_name = self.symbols[op]
+			variables = make_variables('a', op.arity())
+			for i in self._rewritable_args(op):
+				args = [f'{var}' if j != i else 'a b' for j, var in enumerate(variables)]
+				args = self._make_collapsed_args(op, args)
+				label = f'sub_{op_name}{subindex(i) if op.arity() > 1 else ""}'
+				rhs = self.rw_star(self._make_call(op_name, replace(variables, i, "a")),
+				                   self._make_call(op_name, replace(variables, i, "b")),
+				                   kind=self._kind(op.getRangeSort().kind()))
+				lean.print(f'{lemma} rw_star_{label} {args} : {self.rw_star("a", "b", kind=self._kind(op.domainKind(i)))} →\n\t\t'
+				           f'{rhs} := by infer_sub_star ``(rw_one.{label}) ``({prefix}eqe_{op_name})')
+
 	def _do_lemmas(self, lean: LeanWriter):
 		"""Introduce lemmas for the axioms"""
 
@@ -1392,6 +1455,14 @@ class Maude2Lean:
 
 			lean.end_namespace()
 
+		# Equational lemmas for native types
+		if self.opts['with-simp']:
+			for kind, info in self.native_kinds.items():
+				lean.begin_namespace(info.name)
+				lean.print(f'attribute [congr] {" ".join(f"eqe_{self.symbols[op]}" for op in info.ops)}')
+				lean.print(f'attribute [simp] {" ".join(eql[1] for eql in info.eqs)}')
+				lean.end_namespace()
+
 		if not self.opts['with-rules']:
 			return
 
@@ -1448,17 +1519,34 @@ class Maude2Lean:
 			lean.newline()
 			lean.comment('Lemmas for subterm rewriting with =>*')
 
-			for op in self.symbols_kind.get(kind, ()):
-				op_name = self.symbols[op]
-				variables = make_variables('a', op.arity())
-				for i in self._rewritable_args(op):
-					args = [f'{var}' if j != i else 'a b' for j, var in enumerate(variables)]
-					args = self._make_collapsed_args(op, args)
-					label = f'sub_{op_name}{subindex(i) if op.arity() > 1 else ""}'
-					rhs = self.rw_star(self._make_call(op_name, replace(variables, i, "a")),
-					                   self._make_call(op_name, replace(variables, i, "b")))
-					lean.print(f'{lemma} rw_star_{label} {args} : {self.rw_star("a", "b", kind=self._kind(op.domainKind(i)))} →\n\t\t'
-					           f'{rhs} := by infer_sub_star ``(rw_one.{label}) ``(eqe.eqe_{op_name})')
+			self._do_rw_star_lemma(lean, self.symbols_kind.get(kind, ()))
+
+			lean.end_namespace()
+
+		for kind, info in self.native_kinds.items():
+			lean.begin_namespace(info.name)
+
+			# Aliases for rewrite rules
+			if self.opts['with-aliases'] and kind in self.all_rls:
+				lean.newline()
+				lean.comment('Aliases for rewrite rules')
+				for rl, label in self.all_rls.get(kind, ()):
+					lean.print(f'def {label} := @rw_one.{label}')
+
+			# The same as above
+			if self.lean_version == 4:
+				lean.end_namespace()
+				continue
+
+			# Attributes (even without with-simp, since they are required for the lemmas)
+			self._do_rewriting_attrs4kind(lean, kind)
+
+			# Subterm rewriting lemmas for =>*
+			lean.newline()
+			lean.comment('Lemmas for subterm rewriting with =>*')
+
+			self._do_rw_star_lemma(lean, info.ops, prefix='')
+			# TODO: hay un fallo con el rw_one
 
 			lean.end_namespace()
 

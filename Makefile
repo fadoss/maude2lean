@@ -8,7 +8,7 @@ PYTHON ?= /usr/bin/env python3
 # Bundle the all the Python and data file into single executable zip file
 # (based on Stack Overflow's question 17486578)
 
-RESOURCES = maude2lean/data/*.lean
+RESOURCES = maude2lean/data/*.lean maude2lean/data/*.lean4 maude2lean/data/*.json
 CODE      = maude2lean/*.py maude2lean/*/*.py
 
 dist/maude2lean: dist $(RESOURCES) $(CODE)

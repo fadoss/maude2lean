@@ -118,6 +118,9 @@ class LeanWriter:
 			)
 		)
 
+	# Reserverd keywords
+	RESERVED = frozenset({'in'})
+
 
 class Lean3Writer(LeanWriter):
 	"""Helper class for writing Lean 3 files"""

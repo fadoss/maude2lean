@@ -1,6 +1,6 @@
 [project]
 name            = 'maude2lean'
-version         = '1.2.0'
+version         = '1.2.1'
 description     = 'Maude to Lean translator'
 license.text    = 'GPLv3'
 classifiers     = [
