@@ -9,7 +9,7 @@ PYTHON ?= /usr/bin/env python3
 # (based on Stack Overflow's question 17486578)
 
 RESOURCES = maude2lean/data/*.lean maude2lean/data/*.lean4 maude2lean/data/*.json
-CODE      = maude2lean/*.py maude2lean/*/*.py
+CODE      = maude2lean/*.py
 
 dist/maude2lean: dist $(RESOURCES) $(CODE)
 	# Create temporary directory and copy the package into it

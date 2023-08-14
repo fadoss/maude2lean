@@ -1,0 +1,15 @@
+# The same as ninjas.json, but to test YAML support
+
+source: ninjas.maude
+module: NINJAS
+with-repr: false
+with-error-free-opt: true
+with-aliases: false
+use-notation:
+  - has_sort
+  - rw_one
+  - rw_star
+  - eqa
+  - eqe
+op-renaming:
+  "`{_`,_`}": ninja

@@ -72,12 +72,7 @@ begin
       existsi kNat.zero,
       simp [kNat.ctor_only, le_refl],
     },
-    case kNat.s {
-      rw Maude.kNat.size at hs,
-      have nhs := nat.not_succ_le_zero n.size,
-      contradiction,
-    },
-    case kNat.sum : l r {
+    all_goals {
       rw Maude.kNat.size at hs,
       have nhs := nat.not_succ_le_zero _,
       contradiction,
@@ -235,7 +230,7 @@ begin
   },
   case kNat.s : m hm {
     rw kNat.ctor_only at hc,
-    simp [*],
+    simp [hm, hc],
   },
   case kNat.sum {
     rw kNat.ctor_only at hc,

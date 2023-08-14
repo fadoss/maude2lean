@@ -2,7 +2,7 @@
 # Transform a Maude module into a Lean specification
 #
 
-import importlib.resources as pkg_resources
+import importlib.resources
 from collections import Counter
 from itertools import chain
 
@@ -14,6 +14,9 @@ from .def_extractor import get_simple_derived_symbols
 from .graph import Graph
 from .lean import LeanWriter
 from .maudext import is_ctor
+
+# Static files included in the package
+data_root = importlib.resources.files(__package__) / 'data'
 
 
 def subindex(n: int):
@@ -345,6 +348,9 @@ class Maude2Lean:
 		self.all_eqs = self._index_statements('eq', chain(self.mod.getEquations(), extra_eqs))
 		self.all_rls = self._index_statements('rl', self.mod.getRules())
 
+		# Check for owise equations and parse the split-eqe option
+		self._check_owise_and_split()
+
 		# Index structural axioms by kind
 		self.all_axioms = {}
 
@@ -476,6 +482,40 @@ class Maude2Lean:
 
 			self.native_kinds[bool_kind] = SpecialKind(lean_name, self.symbols_kind.pop(bool_kind), bool_eqs)
 			self.native_symbols = translate
+
+	def _check_owise_and_split(self):
+		"""Check unsupported owise attributes and parse split-eqe"""
+
+		# split-eqe separates equation axioms into a new erw_top
+		# relation instead of inlining them into the eqe relation
+
+		self.split_eqe = set()
+
+		for sort_name in self.opts['split-eqe']:
+			if sort := self.mod.findSort(sort_name):
+				self.split_eqe.add(sort.kind())
+			else:
+				diag.warning(f'unknown sort {sort_name} in the argument of split-eqe.'
+				             ' It will be ignored.')
+
+		# Check whether there are owise equations
+		example = None
+
+		for _, eqs in self.all_eqs.items():
+			for eq, _ in eqs:
+				if eq.isOwise():
+					example = eq
+					break
+			if example:
+				break
+
+		# Issue a warning if owise attributes are ignored
+		if example:
+			diag.warning('some equations are marked with owise, which is not supported by this translation.')
+
+			# We only show the example in verbose mode
+			if self.verbose:
+				diag.info(f'for example, {example}')
 
 	def _extract_defs(self):
 		"""Extract Lean definitions from derived Maude operators"""
@@ -1149,7 +1189,25 @@ class Maude2Lean:
 			return
 
 		lean.comment('\tEquations')
-		for eq, label in self.all_eqs[kind]:
+
+		# Separate single rule applications if requested
+		relation = f'{kind_name}.eqe'
+
+		if kind in self.split_eqe:
+			# The step axiom connects erw_top and eqe
+			lean.inductive_ctor('step {a b}', f'{kind_name}.erw_top a b → {kind_name}.eqe a b')
+
+			# Start a new relation erw_top
+			lean.newline()
+			relation = f'{kind_name}.erw_top'
+			lean.begin_inductive(relation, f'{kind_name} → {kind_name} → Prop')
+
+		self._do_equations(lean, self.all_eqs[kind], relation)
+
+	def _do_equations(self, lean: LeanWriter, eqs, relation: str):
+		"""Declare the constructor for the given equations"""
+
+		for eq, label in eqs:
 			premise = self._make_premise(eq)
 			lhs = self._translate_term(eq.getLhs())
 			rhs = self._translate_term(eq.getRhs())
@@ -1159,7 +1217,7 @@ class Maude2Lean:
 			variables = f' {{{variables}}}' if variables else ''
 
 			self._original_as_comment(lean, eq)
-			lean.inductive_ctor(f'{label}{variables}', *premise, f'{kind_name}.eqe {lhs} {rhs}')
+			lean.inductive_ctor(f'{label}{variables}', *premise, f'{relation} {lhs} {rhs}')
 
 	def _do_equational_relations(self, lean: LeanWriter):
 		"""Declare the equational relations"""
@@ -1168,9 +1226,15 @@ class Maude2Lean:
 		lean.comment('Sort membership and equality modulo equations')
 		lean.newline()
 
-		lean.begin_mutual_inductive(f'{kind}.{rel}'
-		                            for rel in ('has_sort', 'eqe')
-		                            for kind in self.kinds.values())
+		# The relations to be defined
+		relations = [f'{kind}.has_sort' for kind in self.kinds.values()]
+
+		for kind, kind_name in self.kinds.items():
+			relations.append(f'{kind_name}.eqe')
+			if kind in self.split_eqe:
+				relations.append(f'{kind_name}.erw_top')
+
+		lean.begin_mutual_inductive(relations)
 
 		# Sort membership relation
 		for kind in self.kinds:
@@ -1278,18 +1342,24 @@ class Maude2Lean:
 		"""Declare the Lean simplifier attribute for the standard axioms"""
 
 		# Definitions for the simplifier
+		eq_prefix = 'erw_top' if kind in self.split_eqe else 'eqe'
+
 		simp_labels = (
 			# Implicit membership axioms (i.e. operator declarations)
 			[f'has_sort.{label}' for label in self.impl_mb_axioms[kind]] +
 			# Explicit membership axioms
 			[f'has_sort.{label}' for mb, label in self.all_mbs.get(kind, ()) if not mb.isNonexec()] +
 			# Equations
-			[f'eqe.{label}' for eq, label in self.all_eqs.get(kind, ()) if not eq.isNonexec()] +
+			[f'{eq_prefix}.{label}' for eq, label in self.all_eqs.get(kind, ()) if not eq.isNonexec()] +
 			# Derived definitions (with the derived-as-defs optimization)
 			[self.symbols[op] for scc, _ in self.derived_defs for op, _ in scc
 			 if op.getRangeSort().kind() == kind] +
 			# Other declarations
 			simp_extra)
+
+		# Add eqe.step as simplification rule if equations are split
+		if kind in self.split_eqe:
+			simp_labels.append('eqe.step')
 
 		# Include structural axioms in the simplifier (if desired)
 		if self.opts['with-axiom-simp']:
@@ -1362,9 +1432,12 @@ class Maude2Lean:
 			lean.print(f'def eqa_{op_name} := @eqa.eqa_{op_name}')
 			lean.print(f'def eqe_{op_name} := @eqe.eqe_{op_name}')
 
-		# Equations
+		# Equations (different if they are split)
+		prefix = '@erw_top' if kind in self.split_eqe else '@eqe'
+
 		for _, label in self.all_eqs.get(kind, ()):
-			lean.print(f'def {label} := @eqe.{label}')
+				lean.print(f'def {label} := {prefix}.{label}')
+
 
 	def _do_rw_star_lemma(self, lean: LeanWriter, ops: list[maude.Symbol], prefix='eqe.'):
 		"""Introduce the congruence lemma of =>* for each operator"""
@@ -1399,7 +1472,7 @@ class Maude2Lean:
 
 		# Write a generic congruence lemma for proving congruences
 		lean.newline()
-		lean.print(pkg_resources.read_text(data, f'generic_congr.{extension}'))
+		lean.print((data_root / f'generic_congr.{extension}').read_text())
 
 		for kind, kind_name in self.kinds.items():
 
@@ -1471,7 +1544,7 @@ class Maude2Lean:
 
 		# Write the generic infer_sub_star tactic (only for Lean 3 at the moment)
 		if self.lean_version == 3:
-			lean.print('\n' + pkg_resources.read_text(data, 'infer_sub_star.lean'))
+			lean.print('\n' + (data_root / 'infer_sub_star.lean').read_text())
 
 		for kind, kind_name in self.kinds.items():
 			lean.begin_namespace(kind_name)

@@ -140,6 +140,14 @@
 			"type": "boolean",
 			"default": false
 		},
+		"split-eqe": {
+			"description": "Split the application of an equation on top as a subrelation of eqe for the given kinds",
+			"type": "array",
+			"items": {
+				"type": "string"
+			},
+			"default": []
+		},
 		"has-sort-symbol": {
 			"description": "Infix notation for the sort membership relation",
 			"type": "string",

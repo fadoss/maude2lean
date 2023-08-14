@@ -2,14 +2,15 @@
 # Entry point of the Maude to Lean translator
 #
 
-import importlib.resources as pkg_resources
+import importlib.resources
 import json
 import os
 import sys
 
 import maude
 
-from . import data
+# Static files included in the package
+data_root = importlib.resources.files(__package__) / 'data'
 
 
 def handle_input_files(defaults: dict, filenames: list[str]):
@@ -39,7 +40,7 @@ def handle_input_files(defaults: dict, filenames: list[str]):
 		elif filename.endswith('.toml'):
 			try:
 				import tomllib
-				with open(filename) as toml_file:
+				with open(filename, 'rb') as toml_file:
 					spec |= tomllib.load(toml_file)
 
 			except ImportError:
@@ -126,7 +127,7 @@ def dump_file(file_ids):
 	for file_id in file_ids:
 		# The schema for the translation options
 		if file_id == 'maude2lean.schema.json' or file_id == 'schema':
-			with pkg_resources.open_text(data, 'maude2lean.schema.json') as sfile:
+			with (data_root / 'maude2lean.schema.json').open() as sfile:
 				for line in sfile:
 					sys.stdout.write(line)
 
@@ -145,7 +146,7 @@ def load_schema(argparse, parser):
 	IGNORED = frozenset({'description', 'source'})
 
 	# Load the JSON schema included in the package
-	with pkg_resources.open_text(data, 'maude2lean.schema.json') as schema_file:
+	with (data_root / 'maude2lean.schema.json').open() as schema_file:
 		schema = json.load(schema_file)
 
 	# Class for handling Boolean options
@@ -188,6 +189,7 @@ def load_schema(argparse, parser):
 		if arg_type == 'array':
 			arg_type, metavar = value['items']['type'], 'NAMES'
 			extra['action'] = 'extend'
+			extra['nargs'] = '+'
 		elif arg_type == 'boolean':
 			extra['action'] = BooleanArg
 		elif choices := value.get('enum'):

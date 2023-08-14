@@ -377,23 +377,23 @@ begin
 end
 
 /-- every_phil_has_right_fork states are deadlocked -/
-lemma ephrf_deadlock (a b : Maude.kTable) (h : a.every_phil_has_right_fork) :
+lemma ephrf_deadlock (a b : Maude.kTable) (hf : a.every_phil_has_right_fork) :
   ¬ (a =>1 b) :=
 begin
   intro h,
   induction h,
-  -- Remove trivial goals
-  any_goals {rw every_phil_has_right_fork at *},
-  any_goals {cc},
   case rw_one.eqe_left : l m r hlm hmr h_ff {
-    exact h_ff ((ephrf_eclass hlm).mp h),
+    exact h_ff ((ephrf_eclass hlm).mp hf),
+  },
+  case rw_one.eqe_right : l m r hlm hmr h_ff {
+    exact h_ff hf,
   },
   case rw_one.sub_table : _ _ h_step {
-    exact Maude.kList.ephrf_deadlock _ _ h h_step,
+    exact Maude.kList.ephrf_deadlock _ _ hf h_step,
   },
   case rw_one.rl_left {
     repeat {rw Maude.kList.every_phil_has_right_fork at h},
-    exact h.right.right,
+    exact hf.right.right,
   },
   case rw_one.sub_initial : l r hlr {
     exact Maude.kNat.no_step hlr,
