@@ -1,0 +1,80 @@
+---
+--- A mutual exclusion protocol with test&set
+---
+--- Status lock = open;
+--- ...
+--- Loop: "Remainder Section"
+---  rs: repeat while test&set(lock) = close;
+---    "Critical Section"
+---  cs: lock := open;
+---
+--- where test&set(x) atomically does the following:
+--- x is set to close and the old value of x is returned.
+---
+--- Initially, lock is open and each process is in
+--- Remainder Section (or at label rs).
+---
+
+fmod LABEL is
+ sort Label .
+
+ ops rs cs : -> Label [ctor] .
+ op _~_ : Label Label -> Bool [comm] .
+ eq (L:Label ~ L:Label) = true .
+ eq rs ~ cs = false .
+endfm
+
+fth PID is inc BOOL .
+ sort Pid .
+ op _~_ : Pid Pid -> Bool [comm] .
+ eq (P:Pid ~ P:Pid) = true .
+ ceq [pid_trans] : P:Pid ~ R:Pid = true if P:Pid ~ Q:Pid /\ Q:Pid ~ R:Pid [nonexec] .
+endfth
+
+fmod STATUS is
+ sort Status .
+ ops open close : -> Status [ctor] .
+ op _~_ : Status Status -> Bool [comm] .
+ eq (L:Status ~ L:Status) = true .
+ eq open ~ close = false .
+ ceq [status_trans] : S1:Status ~ S3:Status = true if S1:Status ~ S2:Status /\ S2:Status ~ S3:Status [nonexec] .
+endfm
+
+fmod TAS{X :: PID} is
+ pr LABEL .
+ pr STATUS .
+ sort Sys .
+ --- any initial state
+ op init : -> Sys [ctor] .
+ --- transitions
+ op enter : Sys X$Pid -> Sys [ctor] .
+ op leave : Sys X$Pid -> Sys [ctor] .
+ --- observations
+ op pc   : Sys X$Pid -> Label .
+ op lock : Sys -> Status .
+ ---
+ vars I J : X$Pid .
+ var  S : Sys .
+ --- init
+ eq pc(init,I)  = rs  [metadata "CA-I1"] .
+ eq lock(init) = open [metadata "CA-I2"] .
+--- enter
+--- -------------------------------------------------------
+  op c-enter : Sys X$Pid -> Bool .
+  eq c-enter(S,I) = (pc(S,I) ~ rs and lock(S) ~ open) .
+  ---
+  ceq pc(enter(S,I),J) = (if I ~ J then cs else pc(S,J) fi) if c-enter(S,I) .
+  ceq lock(enter(S,I)) = close                              if c-enter(S,I) .
+  ceq enter(S,I)       = S                                  if not c-enter(S,I) .
+--- -------------------------------------------------------
+--- leave
+--- -------------------------------------------------------
+  op c-leave : Sys X$Pid -> Bool .
+  eq c-leave(S,I) = (pc(S,I) ~ cs) .
+  ---
+  ceq pc(leave(S,I),J) = (if I ~ J then rs else pc(S,J) fi) if c-leave(S,I) .
+  ceq lock(leave(S,I)) = open                               if c-leave(S,I) .
+  ceq leave(S,I)       = S                                  if not c-leave(S,I) .
+--- -------------------------------------------------------
+
+endfm

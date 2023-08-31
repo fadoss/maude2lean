@@ -1,0 +1,152 @@
+fmod EQ is
+ op _=_ : Universal Universal -> Bool [comm poly(1 2)] .
+
+ var B : Bool .
+ eq (B = B) = true .
+ eq (true = false) = false .
+endfm
+
+fmod LABEL is
+  pr EQ .
+
+  sort Label .
+  ops rs ws cs : -> Label [ctor] .
+
+  var L : Label .
+
+  eq L = L = true .
+  eq (rs = ws) = false .
+  eq (rs = cs) = false .
+  eq (ws = cs) = false .
+endfm
+
+fmod PID is
+  pr EQ .
+
+  sorts ErrPid Pid Pid&Err .
+  subsort ErrPid Pid < Pid&Err .
+
+  var I : Pid .
+  var EI : ErrPid .
+  var PE : Pid&Err .
+
+  op none : -> ErrPid [ctor] .
+
+  eq PE = PE = true .
+  eq (I = EI) = false .
+endfm
+
+
+fth TRIVerr is
+  sorts ErrElt Elt Elt&Err .
+  subsort ErrElt Elt < Elt&Err .
+
+  op err : -> ErrElt [ctor] .
+endfth
+
+fmod QUEUE{E :: TRIVerr} is
+  sorts EQueue NeQueue Queue .
+  subsorts EQueue NeQueue < Queue .
+
+  vars X Y : E$Elt .
+  var Q : Queue .
+
+  op empty :             -> EQueue [ctor] .
+  op _|_   : E$Elt Queue -> NeQueue [ctor] .
+
+  op enq : Queue E$Elt -> NeQueue .
+  eq enq(empty,X) = X | empty .
+  eq enq(Y | Q,X) = Y | enq(Q,X) .
+
+  op deq : Queue -> Queue .
+  eq deq(empty) = empty .
+  eq deq(X | Q) = Q .
+
+  op top : EQueue -> E$ErrElt .
+  op top : NeQueue -> E$Elt .
+  op top : Queue -> E$Elt&Err .
+  eq top(empty) = err .
+  eq top(X | Q) = X .
+endfm
+
+view TRIVerr2PID from TRIVerr to PID is
+  sort Elt to Pid .
+  sort ErrElt to ErrPid .
+  sort Elt&Err to Pid&Err .
+  op err to none .
+endv
+
+fmod QLOCK is
+  pr LABEL + PID .
+  pr QUEUE{TRIVerr2PID} .
+  sort Sys .
+  --- any initial state
+  op init : -> Sys [ctor] .
+  --- transitions
+  op want : Sys Pid -> Sys [ctor] .
+  op try  : Sys Pid -> Sys [ctor] .
+  op exit : Sys Pid -> Sys [ctor] .
+  --- observations
+  op pc    : Sys Pid -> Label .
+  op queue : Sys -> Queue .
+
+  vars I J : Pid .
+  var  S : Sys .
+
+  --- for any initial state
+  eq pc(init,I)  = rs .
+  eq queue(init) = empty .
+  --- for want
+  op c-want : Sys Pid -> Bool .
+  eq c-want(S,I) = (pc(S,I) = rs) .
+
+  ceq pc(want(S,I),J)  = (if I = J then ws else pc(S,J) fi) if c-want(S,I) .
+  ceq queue(want(S,I)) = enq(queue(S),I)                    if c-want(S,I) .
+  ceq want(S,I)        = S                                  if not c-want(S,I) .
+  --- for try
+  op c-try : Sys Pid -> Bool .
+  eq c-try(S,I) = ((pc(S,I) = ws) and top(queue(S)) = I) .
+
+  ceq pc(try(S,I),J)  = (if I = J then cs else pc(S,J) fi) if c-try(S,I) .
+  eq  queue(try(S,I)) = queue(S) .
+  ceq try(S,I)        = S                                  if not c-try(S,I) .
+  --- for exit
+  op c-exit : Sys Pid -> Bool .
+  eq c-exit(S,I) = (pc(S,I) = cs) .
+
+  ceq pc(exit(S,I),J)  = (if I = J then rs else pc(S,J) fi) if c-exit(S,I) .
+  ceq queue(exit(S,I)) = deq(queue(S))                      if c-exit(S,I) .
+  ceq exit(S,I)        = S                                  if not c-exit(S,I) .
+
+  ---
+  --- Properties to prove
+  ---
+  op inv1 : Sys Pid Pid -> Bool .
+  op inv2 : Sys Pid -> Bool .
+  eq inv1(S:Sys,I:Pid,J:Pid)
+     = (((pc(S,I) = cs) and pc(S,J) = cs) implies I = J) .
+  eq inv2(S:Sys,I:Pid) = (pc(S,I) = cs implies top(queue(S)) = I) .
+endfm
+
+eof
+
+
+
+--
+-- Properties to prove
+--
+  op inv1 : Sys Pid Pid -> Bool
+  op inv2 : Sys Pid -> Bool
+  eq inv1(S:Sys,I:Pid,J:Pid)
+     = (((pc(S,I) = cs) and pc(S,J) = cs) implies I = J) .
+  eq inv2(S:Sys,I:Pid) = (pc(S,I) = cs implies top(queue(S)) = I) .
+  --
+  -- The following is the lemma systematically conjectured,
+  -- from which inv2(S,I) can be conjectured.
+  -- inv2(S,I) implies inv2-0(I',I,I'')
+  --
+  op inv2-0 : Sys Pid Pid Pid -> Bool
+  eq inv2-0(S:Sys,I:Pid,J:Pid,K:Pid)
+      = not((pc(S,K) = ws) and (top(queue(S)) = K) and
+            (I = K) and (not (J = K)) and (pc(S,J) = cs)) .
+

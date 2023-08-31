@@ -1,0 +1,18 @@
+{
+	"source": "qlock.maude",
+	"module": "QLOCK",
+	"description": "No se dan las circunstancias para que se activen with-error-free-opt ni with-derived-as-defs",
+	"with-aliases": false,
+	"with-repr": false,
+	"with-rules": false,
+	"with-error-free-opt": true,
+	"with-derived-as-defs": true,
+	"with-derived-as-const": true,
+	"with-axiom-simp": true,
+	"with-original-stmt": true,
+	"with-native-bool": true,
+	"use-notation": ["has_sort", "rw_one", "rw_star", "eqa", "eqe"],
+	"kind-renaming": {
+		"Pid": "kPid"
+	}
+}

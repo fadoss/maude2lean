@@ -1,0 +1,17 @@
+{
+	"source": "tas.maude",
+	"module": "TAS",
+	"with-repr": false,
+	"with-error-free-opt": true,
+	"with-aliases": false,
+	"with-rules": false,
+	"with-original-stmt": true,
+	"with-native-bool": true,
+	"use-notation": ["has_sort", "rw_one", "rw_star", "eqa", "eqe"],
+	"op-renaming": {
+		"open": "sopen"
+	},
+	"sort-renaming": {
+		"X$Pid": "Pid"
+	}
+}
