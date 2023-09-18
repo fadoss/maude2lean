@@ -119,7 +119,7 @@ class LeanWriter:
 		)
 
 	# Reserverd keywords
-	RESERVED = frozenset({'in'})
+	RESERVED = frozenset({'in', 'open'})
 
 
 class Lean3Writer(LeanWriter):
@@ -188,20 +188,10 @@ class Lean4Writer(LeanWriter):
 		self.namespace_stack.pop()
 		self._write('end\n')
 
-	def begin_def(self, name: str, *types: str, computable=True):
-		"""Inductive definition header"""
-		super().begin_def(name, *types)
-		# Definitions for multiple arguments are not for Lean 4
-		if len(types) > 2:
-			vs = tuple(f'a{k}' for k in range(len(types) - 1))
-			self._write(f':= fun {" ".join(vs)} => '
-			            f'match ({", ".join(vs)}) with\n')
-
 	def def_case(self, rhs: str, *lhs: str):
 		"""Inductive definition case"""
 		# Multiple arguments are matched as a tuple
-		lhs_str = lhs[0] if len(lhs) == 1 else f'({", ".join(lhs)})'
-		self._write(f'{self.TAB}| {lhs_str} => {rhs}\n')
+		self._write(f'{self.TAB}| {", ".join(lhs)} => {rhs}\n')
 
 	def decl_notation(self, name: str, prio: int, value: str):
 		"""Notation declaration"""

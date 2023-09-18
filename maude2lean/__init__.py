@@ -1379,9 +1379,12 @@ class Maude2Lean:
 
 		lean.comment('Attributes for the Lean simplifier and machinery')
 
-		lean.print('attribute [refl] eqa.refl')
-		lean.print('attribute [symm] eqa.symm eqe.symm')
-		lean.print('attribute [trans] eqa.trans eqe.trans')
+		if self.lean_version == 3:
+			lean.print('attribute [refl] eqa.refl')
+			lean.print('attribute [symm] eqa.symm eqe.symm')
+			lean.print('attribute [trans] eqa.trans eqe.trans')
+		else:
+			lean.print('attribute [simp] eqa.refl eqa.trans eqe.trans')
 
 		# Congruence axioms
 		congr_labels = []
@@ -1391,6 +1394,12 @@ class Maude2Lean:
 			congr_labels.append(f'eqe.eqe_{self.symbols[op]}')
 
 		if congr_labels or congr_extra:
+			# Lean 4 congr attribute can only be applied to standard equality
+			# (and only congr_extra refer to standard equality), so fallback to simp
+			if self.lean_version == 4 and congr_labels:
+				lean.print(f'attribute [simp]', ' '.join(congr_labels))
+				congr_labels.clear()
+
 			lean.print('attribute [congr]', ' '.join(congr_labels + congr_extra))
 
 		# Simplifier axioms
@@ -1402,8 +1411,11 @@ class Maude2Lean:
 		lean.newline()
 		lean.comment('Attributes for the Lean simplifier and machinery')
 
-		lean.print('attribute [refl] rw_star.refl')
-		lean.print('attribute [trans] rw_star.trans')
+		if self.lean_version == 3:
+			lean.print('attribute [refl] rw_star.refl')
+			lean.print('attribute [trans] rw_star.trans')
+		else:
+			lean.print('attribute [simp] rw_star.refl rw_star.trans')
 
 	def _do_equational_aliases4kind(self, lean: LeanWriter, kind: maude.Kind):
 		"""Declare aliases for equational definitions for the given kind"""
@@ -1463,11 +1475,13 @@ class Maude2Lean:
 		lean.comment('Lemmas and aliases')
 
 		# These variables are used to make lemmas compatible for both Lean 3 and 4
-		lemma, congr_decl, refl_decl = 'lemma', '@[congr] ', '@[refl] ',
+		lemma, congr_decl, refl_decl = 'lemma', '@[congr] ', '@[refl] '
 		lambda_sep, extension = ',', 'lean'
 
 		if self.lean_version == 4:
-			lemma, congr_decl, refl_decl = 'theorem', '', ''
+			# refl, symm, and trans attributes do not longer exist in Lean 4
+			# and congr only works for the standard equality
+			lemma, congr_decl, refl_decl = 'theorem', '@[congr] ', '@[simp] '
 			lambda_sep, extension = ' =>', 'lean4'
 
 		# Write a generic congruence lemma for proving congruences
@@ -1520,11 +1534,7 @@ class Maude2Lean:
 			# Activate the membership axioms for the Lean simplifier
 			if self.opts['with-simp']:
 				lean.newline()
-
-				if self.lean_version == 3:
-					self._do_equational_attrs4kind(lean, kind, simp_axioms, congr_axioms)
-				else:
-					self._do_simp4kind(lean, kind, simp_axioms)
+				self._do_equational_attrs4kind(lean, kind, simp_axioms, congr_axioms)
 
 			lean.end_namespace()
 
@@ -1542,7 +1552,7 @@ class Maude2Lean:
 		lean.newline()
 		lean.comment('Lemmas for the rewriting relation')
 
-		# Write the generic infer_sub_star tactic (only for Lean 3 at the moment)
+		# Write the generic infer_sub_star tactic (only for Lean 3, see below)
 		if self.lean_version == 3:
 			lean.print('\n' + (data_root / 'infer_sub_star.lean').read_text())
 
@@ -1579,14 +1589,17 @@ class Maude2Lean:
 				for rl, label in self.all_rls.get(kind, ()):
 					lean.print(f'def {label} := @rw_one.{label}')
 
-			# Lean 4 does not currently support the refl and trans attributes
-			# and we have not adapted the infer_sub_star metaproof to Lean 4
+			# Attributes (even without with-simp, since they are required for the lemmas)
+			self._do_rewriting_attrs4kind(lean, kind)
+
+			# Lean 4 does not support the refl and trans attributes (there is
+			# a rfl tactic but it does not seem to be extensible and the
+			# transitivity tactic has been removed, apply Eq.trans is used
+			# instead). Moreover, the metaproof used for infer_sub_star is not
+			# valid in Lean 4.
 			if self.lean_version == 4:
 				lean.end_namespace()
 				continue
-
-			# Attributes (even without with-simp, since they are required for the lemmas)
-			self._do_rewriting_attrs4kind(lean, kind)
 
 			# Subterm rewriting lemmas for =>*
 			lean.newline()
@@ -1606,20 +1619,19 @@ class Maude2Lean:
 				for rl, label in self.all_rls.get(kind, ()):
 					lean.print(f'def {label} := @rw_one.{label}')
 
+			# Attributes (even without with-simp, since they are required for the lemmas)
+			self._do_rewriting_attrs4kind(lean, kind)
+
 			# The same as above
 			if self.lean_version == 4:
 				lean.end_namespace()
 				continue
-
-			# Attributes (even without with-simp, since they are required for the lemmas)
-			self._do_rewriting_attrs4kind(lean, kind)
 
 			# Subterm rewriting lemmas for =>*
 			lean.newline()
 			lean.comment('Lemmas for subterm rewriting with =>*')
 
 			self._do_rw_star_lemma(lean, info.ops, prefix='')
-			# TODO: hay un fallo con el rw_one
 
 			lean.end_namespace()
 

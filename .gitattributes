@@ -1,0 +1,6 @@
+# Generated files
+test/peano/peano.lean -diff -merge linguist-generated=true
+test/peano/peano_defs.lean -diff -merge linguist-generated=true
+test/philosophers/philosophers.lean -diff -merge linguist-generated=true
+test/qlock/qlock.lean -diff -merge linguist-generated=true
+test/ninjas/ninjas.lean -diff -merge linguist-generated=true

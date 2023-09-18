@@ -26,6 +26,9 @@ class FakeEquation:
 	def isNonexec(self):
 		return False
 
+	def isOwise(self):
+		return False
+
 	def getCondition(self):
 		return self.condition
 
