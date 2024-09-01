@@ -12,8 +12,8 @@ version: 1.0
 date-released: 2022-10-14
 url: https://github.com/fadoss/maude2lean
 preferred-citation:
-  type: conference-paper
-  doi: 10.1007/978-3-031-17244-1_16
+  type: article
+  doi: 10.1016/j.jlamp.2024.101005
   authors:
     - family-names: Rubio
       given-names: Rubén
@@ -21,17 +21,35 @@ preferred-citation:
     - family-names: Riesco
       given-names: Adrián
       orcid: https://orcid.org/0000-0002-9716-4612
-  title: Theorem Proving for Maude Specifications Using Lean
-  conference:
-    name: 23rd International Conference on Formal Engineering Methods (ICFEM) 2022
-    website: https://maude.ucm.es/ICFEM22/
-    date-start: 2022-10-24
-    date-end: 2022-10-27
-  year: 2022
-  month: 10
-  start: 263
-  end: 280
-  volume: 13478
-  collection-title: Lecture Notes in Computer Science
+  title: 'Maude2Lean: Theorem proving for Maude specifications using Lean'
+  journal: J. Log. Algebr. Methods Program.
+  year: 2024
+  month: 8
+  start: 1
+  end: 22
   publisher:
-    name: Springer
+    name: Elsevier
+references:
+  - type: conference-paper
+    doi: 10.1007/978-3-031-17244-1_16
+    authors:
+      - family-names: Rubio
+        given-names: Rubén
+        orcid: https://orcid.org/0000-0003-2983-3404
+      - family-names: Riesco
+        given-names: Adrián
+        orcid: https://orcid.org/0000-0002-9716-4612
+    title: Theorem Proving for Maude Specifications Using Lean
+    conference:
+      name: 23rd International Conference on Formal Engineering Methods (ICFEM) 2022
+      website: https://maude.ucm.es/ICFEM22/
+      date-start: 2022-10-24
+      date-end: 2022-10-27
+    year: 2022
+    month: 10
+    start: 263
+    end: 280
+    volume: 13478
+    collection-title: Lecture Notes in Computer Science
+    publisher:
+      name: Springer

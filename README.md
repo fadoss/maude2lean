@@ -11,4 +11,4 @@ where the arguments are either a Maude file or a JSON, YAML, or TOML specificati
 
 The installation requirements for `maude2lean` are Python 3.9 and the [maude](https://pypi.org/project/maude) Python library. Wheels and bundles are available in the [releases](https://github.com/fadoss/maude2lean/releases/tag/latest) section of this repository.
 
-For a detailed description of the translation, see [*Theorem proving for Maude specifications using Lean*](https://doi.org/10.1007/978-3-031-17244-1_16).
+For a detailed description of the translation, see [*Maude2Lean: Theorem proving for Maude specifications using Lean*](https://doi.org/10.1016/j.jlamp.2024.101005) or its shorter [conference version](https://doi.org/10.1007/978-3-031-17244-1_16).
